@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from pathlib import Path
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from config import DATABASE_URL
 from database import init_pool
 from routers import (
-    allegati, categorie, categorie_servizio, conversioni, dashboard,
+    allegati, auth, categorie, categorie_servizio, conversioni, dashboard,
     ddt, fatture, fornitori, listino, listino_servizi, magazzini, ordini, prodotti, vettori,
 )
 
@@ -32,6 +34,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_AZIONI = {"POST": "creazione", "PATCH": "modifica", "PUT": "modifica", "DELETE": "eliminazione"}
+
+
+@app.middleware("http")
+async def log_attivita(request: Request, call_next):
+    """Registra in log_attivita ogni operazione di scrittura sulle API.
+
+    Le route statiche del frontend rispondono solo a GET, quindi ogni
+    POST/PATCH/DELETE e' per definizione una chiamata API.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if request.method in _AZIONI and not path.endswith("/auth/login"):
+        try:  # il log non deve mai bloccare l'operazione
+            async with app.state.pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO log_attivita (username, azione, metodo, percorso, codice_stato) "
+                    "VALUES ($1, $2, $3, $4, $5)",
+                    request.headers.get("X-Username"),
+                    _AZIONI[request.method],
+                    request.method,
+                    path[:200],
+                    response.status_code,
+                )
+        except Exception:
+            pass
+    return response
+
+
+app.include_router(auth.router)
 app.include_router(fornitori.router)
 app.include_router(magazzini.router)
 app.include_router(vettori.router)
@@ -63,4 +95,5 @@ class NoCacheStaticFiles(StaticFiles):
         return response
 
 
-app.mount("/", NoCacheStaticFiles(directory="/root/procurement/frontend", html=True), name="frontend")
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

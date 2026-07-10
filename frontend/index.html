@@ -31,6 +31,11 @@
   <a class="nav-link" data-route="/ordini" href="#/ordini"><i class="bi bi-clipboard-check"></i>Ordini</a>
   <a class="nav-link" data-route="/ddt" href="#/ddt"><i class="bi bi-truck"></i>DDT</a>
   <a class="nav-link" data-route="/fatture" href="#/fatture"><i class="bi bi-receipt"></i>Fatture</a>
+
+  <div id="nav-admin" class="d-none">
+    <div class="sidebar-section">Sistema</div>
+    <a class="nav-link" data-route="/log-attivita" href="#/log-attivita"><i class="bi bi-list-check"></i>Log Attivit&agrave;</a>
+  </div>
 </nav>
 
 <!-- Main wrapper -->
@@ -38,10 +43,29 @@
   <header id="main-header">
     <h5 id="page-title" class="mb-0 fw-semibold"></h5>
     <div id="header-actions"></div>
+    <div id="utente-box" class="d-none align-items-center gap-2 ms-3">
+      <i class="bi bi-person-circle text-secondary"></i>
+      <span id="utente-nome" class="fw-semibold small"></span>
+      <span id="utente-ruolo" class="badge text-bg-secondary"></span>
+      <button id="btn-logout" class="btn btn-outline-secondary btn-sm" title="Esci">
+        <i class="bi bi-box-arrow-right"></i>
+      </button>
+    </div>
   </header>
   <main id="main-content">
     <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
   </main>
+</div>
+
+<!-- Login (senza password: solo rete locale) -->
+<div id="login-overlay" class="d-none position-fixed top-0 start-0 w-100 h-100 bg-body d-flex align-items-center justify-content-center" style="z-index:2000">
+  <div class="card shadow" style="width:22rem">
+    <div class="card-body p-4 text-center">
+      <h5 class="card-title mb-1"><i class="bi bi-boxes me-2"></i>Procurement Acciaio</h5>
+      <p class="text-muted small mb-4">Seleziona il tuo utente per entrare</p>
+      <div id="login-utenti" class="d-grid gap-2"></div>
+    </div>
+  </div>
 </div>
 
 <!-- Toast container -->

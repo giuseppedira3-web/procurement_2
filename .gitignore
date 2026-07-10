@@ -22,3 +22,4 @@ venv/
 *.dump
 backup*.sql
 dati.sql
+db_vecchio.sql

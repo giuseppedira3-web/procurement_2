@@ -1,8 +1,20 @@
 const BASE = '/api';
 
+// Utente loggato (login senza password, solo rete locale)
+export function getUtente() {
+  try { return JSON.parse(localStorage.getItem('acciaio_utente')); } catch { return null; }
+}
+
+export function setUtente(u) {
+  if (u) localStorage.setItem('acciaio_utente', JSON.stringify(u));
+  else localStorage.removeItem('acciaio_utente');
+}
+
 // Tutte le chiamate API vanno a /api/* che FastAPI gestisce
 async function req(method, path, body = null) {
   const opts = { method, headers: {} };
+  const utente = getUtente();
+  if (utente) opts.headers['X-Username'] = utente.username;
   if (body !== null) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -20,7 +32,10 @@ async function req(method, path, body = null) {
 async function upload(path, file) {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch(path, { method: 'POST', body: formData });
+  const headers = {};
+  const utente = getUtente();
+  if (utente) headers['X-Username'] = utente.username;
+  const res = await fetch(path, { method: 'POST', headers, body: formData });
   if (!res.ok) {
     let msg = `Errore ${res.status}: ${res.statusText}`;
     try { const j = await res.json(); msg = Array.isArray(j.detail) ? j.detail.map(e => e.msg).join('; ') : (j.detail || msg); } catch {}
@@ -34,6 +49,12 @@ export const api = {
   post:  (path, body) => req('POST',   path, body),
   patch: (path, body) => req('PATCH',  path, body),
   del:   (path)       => req('DELETE', path),
+
+  auth: {
+    utenti: ()       => req('GET',  '/auth/utenti'),
+    login:  username => req('POST', '/auth/login', { username }),
+  },
+  logAttivita: (p='') => req('GET', `/log-attivita${p}`),
 
   // Shortcuts per entity
   fornitori:   { list: (p='') => req('GET', `/fornitori/${p}`), get: id => req('GET', `/fornitori/${id}`), create: b => req('POST', '/fornitori/', b), update: (id,b) => req('PATCH', `/fornitori/${id}`, b), del: id => req('DELETE', `/fornitori/${id}`),

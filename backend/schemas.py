@@ -669,3 +669,31 @@ class BulkImportResult(BaseModel):
     totale_righe: int
     inseriti: int
     errori: list[BulkImportError]
+
+
+# ---------------------------------------------------------------------------
+# UTENTI E LOG ATTIVITA
+# ---------------------------------------------------------------------------
+
+class LoginRequest(BaseModel):
+    username: str
+
+
+class UtenteResponse(BaseModel):
+    id: int
+    username: str
+    nome_completo: str | None = None
+    ruolo: str
+    attivo: bool
+    created_at: datetime
+
+
+class LogAttivitaResponse(BaseModel):
+    id: int
+    username: str | None = None
+    azione: str
+    metodo: str
+    percorso: str
+    codice_stato: int
+    dettaglio: str | None = None
+    created_at: datetime

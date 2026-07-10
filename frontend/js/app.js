@@ -8,7 +8,9 @@ import { renderOrdini }       from './pages/ordini.js';
 import { renderDdt }          from './pages/ddt.js';
 import { renderFatture }      from './pages/fatture.js';
 import { renderVettori }      from './pages/vettori.js';
-import { setTitle, loading }  from './utils.js';
+import { renderLogAttivita }  from './pages/log_attivita.js';
+import { setTitle, loading, toast } from './utils.js';
+import { api, getUtente, setUtente } from './api.js';
 
 const ROUTES = {
   '/':           { title: 'Dashboard',        render: renderDashboard },
@@ -21,6 +23,7 @@ const ROUTES = {
   '/ordini':     { title: 'Ordini',           render: renderOrdini },
   '/ddt':        { title: 'DDT',              render: renderDdt },
   '/fatture':    { title: 'Fatture',          render: renderFatture },
+  '/log-attivita': { title: 'Log Attività',   render: renderLogAttivita },
 };
 
 const content = document.getElementById('main-content');
@@ -56,8 +59,65 @@ async function handleRoute() {
   }
 }
 
+// ── Login (senza password: solo rete locale) ──────────────────────────────
+function applicaUtente() {
+  const u = getUtente();
+  const box = document.getElementById('utente-box');
+  box.classList.toggle('d-none', !u);
+  box.classList.toggle('d-flex', !!u);
+  document.getElementById('nav-admin').classList.toggle('d-none', !u || u.ruolo !== 'admin');
+  if (u) {
+    document.getElementById('utente-nome').textContent = u.nome_completo || u.username;
+    document.getElementById('utente-ruolo').textContent = u.ruolo;
+    document.getElementById('utente-ruolo').className =
+      `badge ${u.ruolo === 'admin' ? 'text-bg-primary' : 'text-bg-secondary'}`;
+  }
+}
+
+async function mostraLogin() {
+  const overlay = document.getElementById('login-overlay');
+  overlay.classList.remove('d-none');
+  const box = document.getElementById('login-utenti');
+  box.innerHTML = '<div class="text-muted small">Caricamento utenti…</div>';
+  try {
+    const utenti = await api.auth.utenti();
+    box.innerHTML = utenti.map(u => `
+      <button class="btn btn-outline-primary d-flex justify-content-between align-items-center" data-username="${u.username}">
+        <span><i class="bi bi-person me-2"></i>${u.nome_completo || u.username}</span>
+        <span class="badge ${u.ruolo === 'admin' ? 'text-bg-primary' : 'text-bg-secondary'}">${u.ruolo}</span>
+      </button>`).join('');
+    box.querySelectorAll('button[data-username]').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          const utente = await api.auth.login(btn.dataset.username);
+          setUtente(utente);
+          overlay.classList.add('d-none');
+          applicaUtente();
+          handleRoute();
+          toast(`Benvenuto, ${utente.nome_completo || utente.username}`);
+        } catch (e) { toast(e.message, 'danger'); }
+      };
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="alert alert-danger small mb-0">${e.message}</div>`;
+  }
+}
+
+document.getElementById('btn-logout').onclick = () => {
+  setUtente(null);
+  window.location.hash = '#/';
+  applicaUtente();
+  mostraLogin();
+};
+
+// ── Avvio ──────────────────────────────────────────────────────────────────
 window.addEventListener('hashchange', handleRoute);
-handleRoute();
+if (getUtente()) {
+  applicaUtente();
+  handleRoute();
+} else {
+  mostraLogin();
+}
 
 // Alt+A → Aggiungi Riga   Alt+S → Salva (modal)
 document.addEventListener('keydown', e => {
