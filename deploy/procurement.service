@@ -1,0 +1,18 @@
+# Template unit systemd per Procurement Acciaio.
+# I placeholder __DIR__ e __USER__ vengono sostituiti da setup.sh.
+
+[Unit]
+Description=Procurement Acciaio API - FastAPI
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=exec
+User=__USER__
+WorkingDirectory=__DIR__/backend
+ExecStart=__DIR__/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
