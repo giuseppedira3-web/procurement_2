@@ -1,0 +1,204 @@
+:root {
+  --sidebar-w: 240px;
+  --sidebar-bg: #1a2535;
+  --sidebar-text: #c8d0dc;
+  --sidebar-active-bg: rgba(255,255,255,.08);
+  --sidebar-active-text: #fff;
+  --accent: #e67e22;
+  --header-h: 56px;
+}
+
+/* Layout */
+body { display: flex; height: 100vh; overflow: hidden; background: #f0f2f5; }
+
+#sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 0 1rem;
+}
+
+.sidebar-brand {
+  padding: 1rem 1.25rem;
+  font-size: .9rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: .02em;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.sidebar-divider { border-color: rgba(255,255,255,.1); margin: .5rem 1rem; }
+
+.sidebar-section {
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: rgba(255,255,255,.35);
+  padding: .75rem 1.25rem .25rem;
+}
+
+#sidebar .nav-link {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .5rem 1.25rem;
+  color: var(--sidebar-text);
+  border-radius: 0;
+  font-size: .85rem;
+  transition: background .15s, color .15s;
+  text-decoration: none;
+}
+
+#sidebar .nav-link i { font-size: 1rem; opacity: .75; }
+
+#sidebar .nav-link:hover {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active-text);
+}
+
+#sidebar .nav-link.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+#sidebar .nav-link.active i { opacity: 1; }
+
+/* Main */
+#main-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#main-header {
+  height: var(--header-h);
+  background: #fff;
+  border-bottom: 1px solid #dee2e6;
+  padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+#main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+/* Cards */
+.stat-card {
+  border: none;
+  border-radius: .75rem;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07);
+  padding: 1.25rem 1.5rem;
+}
+
+.stat-card .stat-value { font-size: 2rem; font-weight: 700; line-height: 1; }
+.stat-card .stat-label { font-size: .78rem; color: #6c757d; margin-top: .25rem; }
+.stat-card .stat-icon { font-size: 2.5rem; opacity: .15; }
+
+/* Tables */
+.table-card {
+  background: #fff;
+  border-radius: .75rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07);
+  overflow: hidden;
+}
+
+.table-card .table { margin-bottom: 0; font-size: .85rem; }
+.table-card .table thead th {
+  background: #f8f9fa;
+  border-bottom: 2px solid #dee2e6;
+  font-weight: 600;
+  font-size: .75rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #495057;
+  padding: .65rem 1rem;
+  white-space: nowrap;
+}
+.table-card .table tbody td { padding: .6rem 1rem; vertical-align: middle; }
+.table-card .table tbody tr:hover { background: #f8f9fa; }
+
+.table-card .table thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.table-card .table thead th.sortable:hover { color: #0d6efd; }
+.table-card .table thead th.sortable i { color: #0d6efd; }
+
+.table-card .table thead tr.table-filter-row th {
+  background: #fff;
+  border-bottom: 1px solid #dee2e6;
+  padding: .35rem .5rem;
+  text-transform: none;
+}
+.table-filter-input {
+  font-size: .75rem;
+  padding: .2rem .4rem;
+  height: auto;
+}
+
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .75rem 1rem;
+  border-bottom: 1px solid #dee2e6;
+  background: #fff;
+}
+
+/* Badges / stato */
+.badge-bozza         { background:#6c757d; }
+.badge-inviato       { background:#0d6efd; }
+.badge-confermato    { background:#198754; }
+.badge-parzialmente_consegnato { background:#fd7e14; }
+.badge-completato    { background:#198754; }
+.badge-annullato     { background:#dc3545; }
+.badge-ricevuto      { background:#198754; }
+.badge-verificato    { background:#198754; }
+.badge-fatturato     { background:#6f42c1; }
+.badge-contestato    { background:#dc3545; }
+.badge-ricevuta      { background:#0dcaf0; color:#000; }
+.badge-in_verifica   { background:#fd7e14; }
+.badge-verificata    { background:#0d6efd; }
+.badge-approvata     { background:#20c997; }
+.badge-pagata        { background:#198754; }
+.badge-aperta        { background:#0d6efd; }
+.badge-parziale      { background:#fd7e14; }
+.badge-completa      { background:#198754; }
+
+/* Detail page */
+.detail-header-card {
+  background: #fff;
+  border-radius: .75rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.detail-label { font-size: .72rem; font-weight: 700; text-transform: uppercase; color: #6c757d; letter-spacing:.04em; }
+.detail-value { font-size: .9rem; color: #212529; margin-top: .1rem; }
+
+/* Action buttons */
+.btn-action { padding: .2rem .45rem; font-size: .78rem; }
+
+/* Progress bar in dashboard */
+.progress { height: 6px; }
+
+/* Spinner overlay */
+.content-loading {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 200px;
+}

@@ -1,0 +1,24 @@
+# Ambiente / segreti
+.env
+backend/.env
+
+# Log
+*.log
+
+# Dati runtime (upload allegati, fatture elettroniche)
+allegati/
+fatture_xml/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Sistema
+.DS_Store
+
+# Backup database
+*.dump
+backup*.sql
+dati.sql
