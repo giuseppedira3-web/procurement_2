@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { fmt, toast, setHeaderActions, downloadCsv } from '../utils.js';
+import { fmt, toast, setHeaderActions, downloadCsv, QUALITA_ACCIAIO } from '../utils.js';
 import { renderTable, showFormModal, showImportModal, deleteWithConfirm } from '../components.js';
 
 const LIMIT = 10000;
@@ -84,7 +84,7 @@ export async function renderProdotti(container) {
       options: categorieOrdinate.map(c => ({ value: c.id, label: c.codice })) },
     { name: 'norma',                 label: 'Norma EN',         type: 'text',   col: 4, placeholder: 'EN 10025' },
     { name: 'qualita_acciaio',       label: 'Qualità',          type: 'select', col: 4,
-      options: ['','S235JRH','S275JRH','S275J0H','S275J2H','S355J0H','S280GD+Z','N.a.','Libero'].map(v => ({ value: v, label: v || '— non specificata —' })) },
+      options: QUALITA_ACCIAIO.map(v => ({ value: v, label: v || '— non specificata —' })) },
     { name: 'spessore_mm',           label: 'Spessore (mm)',    type: 'decimal', col: 3 },
     { name: 'larghezza_mm',          label: 'Larghezza (mm)',   type: 'decimal', col: 3 },
     { name: 'lunghezza_mm',          label: 'Lunghezza (mm)',   type: 'decimal', col: 3, value: 6000 },

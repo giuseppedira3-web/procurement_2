@@ -677,6 +677,7 @@ class BulkImportResult(BaseModel):
 
 class LoginRequest(BaseModel):
     username: str
+    password: str
 
 
 class UtenteResponse(BaseModel):
@@ -696,4 +697,23 @@ class LogAttivitaResponse(BaseModel):
     percorso: str
     codice_stato: int
     dettaglio: str | None = None
+    created_at: datetime
+
+
+# TICKETS
+# ---------------------------------------------------------------------------
+
+class TicketCreate(BaseModel):
+    titolo: str
+    testo: str
+
+class TicketUpdate(BaseModel):
+    status: str
+
+class TicketResponse(BaseModel):
+    id: int
+    titolo: str
+    testo: str
+    status: str
+    username: str | None = None
     created_at: datetime

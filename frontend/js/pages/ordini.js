@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { fmt, toast, setHeaderActions, setTitle, qualitaBadge } from '../utils.js';
+import { fmt, toast, setHeaderActions, setTitle, qualitaBadge, QUALITA_ACCIAIO } from '../utils.js';
 import { renderTable, showFormModal, deleteWithConfirm } from '../components.js';
 
 
@@ -451,7 +451,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
     { name: 'sconto_3_percentuale', label: 'Sc.3%',              type: 'decimal', col: 3, value: 0, step: '0.01', placeholder: 'es. -1' },
     { name: 'sconto_4_percentuale', label: 'Sc.4%',              type: 'decimal', col: 3, value: 0, step: '0.01' },
     { name: 'qualita_acciaio',    label: 'Qualità acciaio',  type: 'select', col: 4,
-      options: ['','S235JRH','DX51D','S275JRH','S275J0H','S275J2H','S355J2H','S280GD+Z','DD11','DC01','N.a.','Libero'].map(v => ({ value: v, label: v || '— non specificata —' })) },
+      options: QUALITA_ACCIAIO.map(v => ({ value: v, label: v || '— non specificata —' })) },
     { name: 'lunghezza_mm',       label: 'Lunghezza (mm)',   type: 'decimal', col: 3, value: 6000 },
     { name: 'data_consegna_prevista', label: 'Cons. Prevista', type: 'date', col: 5 },
     { name: 'note',               label: 'Note',             type: 'textarea', col: 12 },

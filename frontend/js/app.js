@@ -9,6 +9,7 @@ import { renderDdt }          from './pages/ddt.js';
 import { renderFatture }      from './pages/fatture.js';
 import { renderVettori }      from './pages/vettori.js';
 import { renderLogAttivita }  from './pages/log_attivita.js';
+import { renderTickets }      from './pages/tickets.js';
 import { setTitle, loading, toast } from './utils.js';
 import { api, getUtente, setUtente } from './api.js';
 
@@ -24,6 +25,7 @@ const ROUTES = {
   '/ddt':        { title: 'DDT',              render: renderDdt },
   '/fatture':    { title: 'Fatture',          render: renderFatture },
   '/log-attivita': { title: 'Log Attività',   render: renderLogAttivita },
+  '/tickets':       { title: 'Ticket',           render: renderTickets },
 };
 
 const content = document.getElementById('main-content');
@@ -87,15 +89,38 @@ async function mostraLogin() {
         <span class="badge ${u.ruolo === 'admin' ? 'text-bg-primary' : 'text-bg-secondary'}">${u.ruolo}</span>
       </button>`).join('');
     box.querySelectorAll('button[data-username]').forEach(btn => {
-      btn.onclick = async () => {
-        try {
-          const utente = await api.auth.login(btn.dataset.username);
-          setUtente(utente);
-          overlay.classList.add('d-none');
-          applicaUtente();
-          handleRoute();
-          toast(`Benvenuto, ${utente.nome_completo || utente.username}`);
-        } catch (e) { toast(e.message, 'danger'); }
+      btn.onclick = () => {
+        const username = btn.dataset.username;
+        const nome = btn.querySelector('span').textContent.trim();
+        box.innerHTML = `
+          <p class="text-muted small mb-2">Password per <strong>${nome}</strong></p>
+          <input type="password" class="form-control form-control-sm mb-2" id="pwd-input" placeholder="Password" />
+          <div class="d-grid gap-2">
+            <button class="btn btn-primary btn-sm" id="btn-pwd-ok">
+              <i class="bi bi-box-arrow-in-right me-1"></i>Accedi
+            </button>
+            <button class="btn btn-link btn-sm text-muted p-0" id="btn-pwd-back">← Torna alla scelta utente</button>
+          </div>
+          <div id="pwd-error" class="alert alert-danger small mt-2 py-1 d-none"></div>`;
+        document.getElementById('pwd-input').focus();
+        document.getElementById('btn-pwd-back').onclick = () => mostraLogin();
+        const doLogin = async () => {
+          const pwd = document.getElementById('pwd-input').value;
+          try {
+            const utente = await api.auth.login(username, pwd);
+            setUtente(utente);
+            overlay.classList.add('d-none');
+            applicaUtente();
+            handleRoute();
+            toast(`Benvenuto, ${utente.nome_completo || utente.username}`);
+          } catch (e) {
+            const err = document.getElementById('pwd-error');
+            err.textContent = e.message;
+            err.classList.remove('d-none');
+          }
+        };
+        document.getElementById('btn-pwd-ok').onclick = doLogin;
+        document.getElementById('pwd-input').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
       };
     });
   } catch (e) {

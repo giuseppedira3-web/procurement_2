@@ -52,7 +52,7 @@ export const api = {
 
   auth: {
     utenti: ()       => req('GET',  '/auth/utenti'),
-    login:  username => req('POST', '/auth/login', { username }),
+    login:  (username, password) => req('POST', '/auth/login', { username, password }),
   },
   logAttivita: (p='') => req('GET', `/log-attivita${p}`),
 

@@ -43,13 +43,16 @@ async def login(body: LoginRequest, conn: asyncpg.Connection = Depends(get_conn)
     row = await conn.fetchrow(
         "SELECT * FROM utenti WHERE username = $1 AND attivo", body.username
     )
+    ok = bool(row) and row["password"] == body.password
     await conn.execute(
         "INSERT INTO log_attivita (username, azione, metodo, percorso, codice_stato) "
         "VALUES ($1, 'login', 'POST', '/auth/login', $2)",
-        body.username[:50], 200 if row else 401,
+        body.username[:50], 200 if ok else 401,
     )
     if not row:
         raise HTTPException(401, "Utente sconosciuto o disattivato")
+    if not ok:
+        raise HTTPException(401, "Password errata")
     return dict(row)
 
 

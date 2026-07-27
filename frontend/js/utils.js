@@ -66,6 +66,7 @@ const QUALITA_COLORS = {
   'S275JRH':   'success',
   'S275J0H':   'success',
   'S275J2H':   'warning',
+  'S355J0H':   '#fd7e14',
   'S355J2H':   'danger',
   'S280GD+Z':  '#6f42c1',
   'DD11':      'info',
@@ -73,6 +74,8 @@ const QUALITA_COLORS = {
   'N.a.':      'light',
   'Libero':    'secondary',
 };
+
+export const QUALITA_ACCIAIO = ['','S235JRH','DX51D','S275JRH','S275J0H','S275J2H','S355J0H','S355J2H','S280GD+Z','DD11','DC01','N.a.','Libero'];
 
 export function qualitaBadge(v) {
   if (!v) return '<span class="text-muted">—</span>';
