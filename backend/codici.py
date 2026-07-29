@@ -2,7 +2,6 @@ from datetime import date
 import asyncpg
 
 TIPI = {"ordine": "OA", "ddt": "DDT", "fattura": "FT"}
-TABELLE = {"ordine": "ordini", "ddt": "ddt", "fattura": "fatture"}
 
 
 async def genera_codice(

@@ -19,12 +19,16 @@ async def list_fatture(
     id_fornitore: int | None = None,
     stato: str | None = None,
     tipo_documento_sdi: str | None = None,
+    ditta: str | None = None,
     q: str | None = Query(None, description="Cerca per codice o numero fattura fornitore"),
     limit: int = Query(50, le=500),
     offset: int = Query(0, ge=0),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     filters, params = [], []
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"ditta = ${len(params)}")
     if id_fornitore is not None:
         params.append(id_fornitore)
         filters.append(f"id_fornitore = ${len(params)}")
@@ -65,8 +69,8 @@ async def create_fattura(body: FatturaCreate, conn: asyncpg.Connection = Depends
                     imponibile, aliquota_iva, importo_iva, totale, valuta,
                     stato, modalita_pagamento, riferimento_riba,
                     numero_sdi, xml_sdi_path, codice_destinatario,
-                    tipo_documento_sdi, data_ricezione_sdi, note
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+                    tipo_documento_sdi, data_ricezione_sdi, ditta, note
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
                 RETURNING *
                 """,
                 codice, body.id_fornitore, body.numero_fattura_fornitore,
@@ -74,7 +78,7 @@ async def create_fattura(body: FatturaCreate, conn: asyncpg.Connection = Depends
                 body.imponibile, body.aliquota_iva, body.importo_iva, body.totale, body.valuta,
                 body.stato, body.modalita_pagamento, body.riferimento_riba,
                 body.numero_sdi, body.xml_sdi_path, body.codice_destinatario,
-                body.tipo_documento_sdi, body.data_ricezione_sdi, body.note,
+                body.tipo_documento_sdi, body.data_ricezione_sdi, body.ditta, body.note,
             )
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "Fattura già presente per questo fornitore con questo numero")
@@ -140,9 +144,17 @@ async def list_righe_fattura(id: int, conn: asyncpg.Connection = Depends(get_con
 
 @router.post("/{id}/righe", response_model=FatturaRigaResponse, status_code=201)
 async def add_riga_fattura(id: int, body: FatturaRigaCreate, conn: asyncpg.Connection = Depends(get_conn)):
-    ft = await conn.fetchval("SELECT id FROM fatture WHERE id = $1", id)
-    if not ft:
+    fattura_ditta = await conn.fetchval("SELECT ditta FROM fatture WHERE id = $1", id)
+    if fattura_ditta is None:
         raise HTTPException(404, "Fattura non trovata")
+    if body.id_ordine is not None:
+        ordine_ditta = await conn.fetchval("SELECT ditta FROM ordini WHERE id = $1", body.id_ordine)
+        if ordine_ditta is not None and ordine_ditta != fattura_ditta:
+            raise HTTPException(422, "L'ordine collegato appartiene a un'altra ditta")
+    if body.id_ddt is not None:
+        ddt_ditta = await conn.fetchval("SELECT ditta FROM ddt WHERE id = $1", body.id_ddt)
+        if ddt_ditta is not None and ddt_ditta != fattura_ditta:
+            raise HTTPException(422, "Il DDT collegato appartiene a un'altra ditta")
     try:
         row = await conn.fetchrow(
             """

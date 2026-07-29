@@ -21,12 +21,16 @@ async def list_ordini(
     id_zincheria: int | None = None,
     stato: str | None = None,
     anno: int | None = None,
+    ditta: str | None = None,
     q: str | None = Query(None, description="Cerca per codice o riferimento fornitore"),
     limit: int = Query(50, le=500),
     offset: int = Query(0, ge=0),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     filters, params = [], []
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"o.ditta = ${len(params)}")
     if id_fornitore is not None:
         params.append(id_fornitore)
         filters.append(f"o.id_fornitore = ${len(params)}")
@@ -75,15 +79,15 @@ async def create_ordine(body: OrdineCreate, conn: asyncpg.Connection = Depends(g
                     riferimento_fornitore, data_ordine, data_consegna_prevista,
                     luogo_consegna, incoterm, valuta, stato,
                     id_magazzino_origine, comune_destinazione, id_vettore,
-                    zincatura, id_zincheria, note
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                    zincatura, id_zincheria, ditta, note
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
                 RETURNING *
                 """,
                 codice, body.id_fornitore, numero, anno,
                 body.riferimento_fornitore, body.data_ordine, body.data_consegna_prevista,
                 body.luogo_consegna, body.incoterm, body.valuta, body.stato,
                 body.id_magazzino_origine, body.comune_destinazione, body.id_vettore,
-                body.zincatura, body.id_zincheria, body.note,
+                body.zincatura, body.id_zincheria, body.ditta, body.note,
             )
         except asyncpg.ForeignKeyViolationError as e:
             raise HTTPException(422, detail=str(e))
@@ -96,9 +100,13 @@ async def create_ordine(body: OrdineCreate, conn: asyncpg.Connection = Depends(g
 async def list_all_righe(
     id_fornitore: int | None = None,
     stato_riga: str | None = None,
+    ditta: str | None = None,
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     filters, params = [], []
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"o.ditta = ${len(params)}")
     if id_fornitore is not None:
         params.append(id_fornitore)
         filters.append(f"o.id_fornitore = ${len(params)}")

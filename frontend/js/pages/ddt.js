@@ -35,7 +35,7 @@ let _righeViewActive = false;
 export async function renderDdt(container, id) {
   if (id) return renderDetail(container, id);
 
-  const [rows, fornitori] = await Promise.all([api.ddt.list(), api.fornitori.list()]);
+  const [rows, fornitori, vettori] = await Promise.all([api.ddt.list(), api.fornitori.list(), api.vettori.list()]);
   const fornMap = Object.fromEntries(fornitori.map(f => [f.id, f.ragione_sociale]));
   rows.forEach(r => r._fornitore = fornMap[r.id_fornitore] || '—');
 
@@ -49,7 +49,8 @@ export async function renderDdt(container, id) {
     { name: 'numero_colli',         label: 'N° Colli',         type: 'number', col: 2 },
     { name: 'peso_lordo_kg',        label: 'Peso Lordo (kg)',  type: 'decimal', col: 3 },
     { name: 'peso_netto_kg',        label: 'Peso Netto (kg)',  type: 'decimal', col: 3 },
-    { name: 'vettore',              label: 'Vettore',          type: 'text',   col: 6 },
+    { name: 'id_vettore',           label: 'Vettore',          type: 'select', col: 6,
+      options: [{ value: '', label: '— nessuno —' }, ...vettori.filter(v => v.attivo).map(v => ({ value: v.id, label: v.ragione_sociale }))] },
     { name: 'targa',                label: 'Targa',            type: 'text',   col: 3 },
     { name: 'stato',                label: 'Stato',            type: 'select', col: 3,
       options: STATI_DDT.map(v => ({ value: v, label: v })) },
@@ -129,9 +130,10 @@ async function renderDetail(container, id) {
   // Fetch DDT first to know the supplier for filtering orders
   const ddt = await api.ddt.get(id);
 
-  const [prodotti, fornitore] = await Promise.all([
+  const [prodotti, fornitore, vettori] = await Promise.all([
     api.prodotti.list('?limit=10000'),
     api.fornitori.get(ddt.id_fornitore),
+    api.vettori.list(),
   ]);
 
   // Se il DDT è emesso da una zincheria, gli ordini collegabili sono quelli
@@ -184,7 +186,8 @@ async function renderDetail(container, id) {
       { name: 'data_ricezione',   label: 'Data Ricezione',  type: 'date',  col: 3 },
       { name: 'peso_lordo_kg',    label: 'Peso Lordo (kg)', type: 'decimal', col: 3 },
       { name: 'peso_netto_kg',    label: 'Peso Netto (kg)', type: 'decimal', col: 3 },
-      { name: 'vettore',          label: 'Vettore',         type: 'text',  col: 6 },
+      { name: 'id_vettore',       label: 'Vettore',         type: 'select', col: 6,
+        options: [{ value: '', label: '— nessuno —' }, ...vettori.filter(v => v.attivo).map(v => ({ value: v.id, label: v.ragione_sociale }))] },
       { name: 'targa',            label: 'Targa',           type: 'text',  col: 3 },
       { name: 'note',             label: 'Note',            type: 'textarea', col: 12 },
     ];
@@ -219,7 +222,7 @@ function ddtHeaderCard(ddt) {
     ${dl('N° Colli', ddt.numero_colli, 2)}
     ${dl('Peso Lordo', fmt(ddt.peso_lordo_kg, 'number') + ' kg', 2)}
     ${dl('Peso Netto', fmt(ddt.peso_netto_kg, 'number') + ' kg', 2)}
-    ${dl('Vettore', ddt.vettore, 5)}
+    ${dl('Vettore', ddt.nome_vettore, 5)}
     ${dl('Targa', ddt.targa, 2)}
     ${ddt.note ? dl('Note', ddt.note, 12) : ''}
   </div></div>`;
@@ -238,6 +241,8 @@ function ddtRigheSection(righe, prodotti, ordini) {
     <td class="text-center">${r.numero_riga}</td>
     <td>${prodCell}</td>
     <td>${r.id_ordine ? `<a href="#/ordini/${r.id_ordine}" class="text-decoration-none">${ordMap[r.id_ordine] || r.id_ordine}</a>` : '—'}</td>
+    <td>${qualitaBadge(r.qualita_acciaio)}</td>
+    <td class="text-end">${r.lunghezza_mm ? Number(r.lunghezza_mm).toLocaleString('it-IT') : '<span class="text-muted">—</span>'}</td>
     <td class="text-end">${fmt(r.quantita_consegnata, 'number')}</td>
     <td><code>${r.unita_misura}</code></td>
     <td class="text-end">${fmt(r.quantita_kg, 'number')}</td>
@@ -256,11 +261,11 @@ function ddtRigheSection(righe, prodotti, ordini) {
     <div class="table-toolbar fw-semibold small"><i class="bi bi-list-ul me-2"></i>Righe DDT</div>
     <table class="table table-hover">
       <thead><tr>
-        <th class="text-center">#</th><th>Prodotto</th><th>Ordine</th>
+        <th class="text-center">#</th><th>Prodotto</th><th>Ordine</th><th>Qualità</th><th class="text-end">Lung. mm</th>
         <th class="text-end">Q.tà</th><th>U.M.</th><th class="text-end">kg</th>
         <th>Lotto</th><th>Colata</th><th>Certificato</th><th>Fatturato</th><th></th>
       </tr></thead>
-      <tbody>${tableRows || '<tr><td colspan="11" class="text-center text-muted py-3">Nessuna riga</td></tr>'}</tbody>
+      <tbody>${tableRows || '<tr><td colspan="13" class="text-center text-muted py-3">Nessuna riga</td></tr>'}</tbody>
     </table>
   </div>`;
 }

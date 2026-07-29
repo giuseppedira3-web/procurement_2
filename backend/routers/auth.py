@@ -29,21 +29,26 @@ async def require_admin(
 @router.get("/auth/utenti", response_model=list[UtenteResponse])
 async def utenti_login(conn: asyncpg.Connection = Depends(get_conn)):
     """Utenti attivi selezionabili nella schermata di login."""
-    rows = await conn.fetch("SELECT * FROM utenti WHERE attivo ORDER BY username")
+    rows = await conn.fetch(
+        "SELECT *, (password IS NOT NULL) AS richiede_password "
+        "FROM utenti WHERE attivo ORDER BY username"
+    )
     return [dict(r) for r in rows]
 
 
 @router.post("/auth/login", response_model=UtenteResponse)
 async def login(body: LoginRequest, conn: asyncpg.Connection = Depends(get_conn)):
-    """Login senza password: basta lo username di un utente attivo.
+    """Login: gli utenti senza password impostata (password IS NULL) accedono
+    con qualunque valore nel campo (il frontend salta lo step della password).
 
     Il tentativo si registra qui (il middleware salta questo percorso,
     perche' solo qui lo username e' nel body e non nell'header).
     """
     row = await conn.fetchrow(
-        "SELECT * FROM utenti WHERE username = $1 AND attivo", body.username
+        "SELECT *, (password IS NOT NULL) AS richiede_password "
+        "FROM utenti WHERE username = $1 AND attivo", body.username
     )
-    ok = bool(row) and row["password"] == body.password
+    ok = bool(row) and (row["password"] is None or row["password"] == body.password)
     await conn.execute(
         "INSERT INTO log_attivita (username, azione, metodo, percorso, codice_stato) "
         "VALUES ($1, 'login', 'POST', '/auth/login', $2)",

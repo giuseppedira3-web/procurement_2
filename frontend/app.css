@@ -95,6 +95,59 @@ body { display: flex; height: 100vh; overflow: hidden; background: #f0f2f5; }
   padding: 1.5rem;
 }
 
+/* Sidebar chiara per ILF (ditta1): serve a rendere subito visibile su quale
+   ditta si sta lavorando. SRL (ditta2) resta con lo scuro di default. */
+body[data-ditta="ditta1"] #sidebar {
+  --sidebar-bg: #ffffff;
+  --sidebar-text: #1a2535;
+  --sidebar-active-bg: rgba(13,110,253,.08);
+  --sidebar-active-text: #0d6efd;
+  border-right: 1px solid #dee2e6;
+}
+body[data-ditta="ditta1"] .sidebar-brand {
+  color: #1a2535;
+  border-bottom-color: #dee2e6;
+}
+body[data-ditta="ditta1"] .sidebar-divider { border-color: #dee2e6; }
+body[data-ditta="ditta1"] .sidebar-section { color: rgba(26,37,53,.45); }
+body[data-ditta="ditta1"] #ditta-switch button {
+  color: #1a2535;
+  border-color: #1a2535;
+}
+body[data-ditta="ditta1"] #ditta-switch button:hover,
+body[data-ditta="ditta1"] #ditta-switch button.active {
+  background: #1a2535;
+  color: #fff;
+}
+
+/* Riquadro utente colorato in base a chi ha fatto login (resto della fascia resta bianco) */
+#utente-box.utente-tinted {
+  background: var(--user-color);
+  padding: .3rem .75rem;
+  border-radius: 999px;
+}
+#utente-box.utente-tinted #utente-nome { color: #fff; }
+#utente-box.utente-tinted .bi-person-circle { color: rgba(255,255,255,.9) !important; }
+#utente-box.utente-tinted #btn-logout {
+  border-color: rgba(255,255,255,.7);
+  color: #fff;
+}
+#utente-box.utente-tinted #btn-logout:hover {
+  background: rgba(255,255,255,.2);
+  border-color: #fff;
+}
+
+/* Pulsanti utente nella schermata di login: bordo colorato, si riempiono al hover */
+.login-user-btn {
+  background: #fff;
+  transition: background-color .15s, color .15s;
+}
+.login-user-btn:hover,
+.login-user-btn:focus {
+  background-color: var(--user-color);
+  color: #fff !important;
+}
+
 /* Cards */
 .stat-card {
   border: none;

@@ -57,6 +57,13 @@ export function opts(items, valueKey, labelKey, selected = null) {
   ).join('');
 }
 
+// Colore identificativo per gli utenti senza password (pulsante di login + fascia header)
+export const USER_COLORS = {
+  giovanni: '#dc3545',
+  giuseppe: '#198754',
+  enzo:     '#6f42c1',
+};
+
 export function qs(sel, ctx = document) { return ctx.querySelector(sel); }
 export function qsa(sel, ctx = document) { return [...ctx.querySelectorAll(sel)]; }
 

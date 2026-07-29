@@ -82,6 +82,26 @@ if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.tables WHERE ta
     echo "  Applico la migrazione 008 (utenti + log attivita)..."
     psql -q "$DATABASE_URL" -f db/008_utenti_log_attivita.sql
 fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='utenti' AND column_name='password'" | grep -q 1; then
+    echo "  Applico la migrazione 009 (password utenti + tickets)..."
+    psql -q "$DATABASE_URL" -f db/009_password_tickets.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='ordini' AND column_name='zincatura'" | grep -q 1; then
+    echo "  Applico la migrazione 010 (zincatura su ordini)..."
+    psql -q "$DATABASE_URL" -f db/010_zincatura_ordini.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM utenti WHERE username='giovanni'" | grep -q 1; then
+    echo "  Applico la migrazione 011 (utenti giovanni/giuseppe/enzo)..."
+    psql -q "$DATABASE_URL" -f db/011_utenti_giovanni_giuseppe_enzo.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='ordini' AND column_name='ditta'" | grep -q 1; then
+    echo "  Applico la migrazione 012 (ditta su ordini/ddt/fatture)..."
+    psql -q "$DATABASE_URL" -f db/012_ditta_documenti.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='ddt' AND column_name='id_vettore'" | grep -q 1; then
+    echo "  Applico la migrazione 013 (ddt.id_vettore al posto di ddt.vettore)..."
+    psql -q "$DATABASE_URL" -f db/013_ddt_id_vettore.sql
+fi
 
 echo "[6/6] Servizio systemd..."
 sed -e "s|__DIR__|${PROJECT_DIR}|g" -e "s|__USER__|${SERVICE_USER}|g" \

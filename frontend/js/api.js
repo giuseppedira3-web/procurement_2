@@ -10,6 +10,19 @@ export function setUtente(u) {
   else localStorage.removeItem('acciaio_utente');
 }
 
+// Ditta attiva (Ditta1 / Ditta2): filtra e marca i documenti (ordini/ddt/fatture)
+export function getDitta() {
+  return localStorage.getItem('acciaio_ditta') || 'ditta2';
+}
+
+export function setDitta(d) {
+  localStorage.setItem('acciaio_ditta', d);
+}
+
+function withDitta(path) {
+  return path + (path.includes('?') ? '&' : '?') + 'ditta=' + getDitta();
+}
+
 // Tutte le chiamate API vanno a /api/* che FastAPI gestisce
 async function req(method, path, body = null) {
   const opts = { method, headers: {} };
@@ -71,19 +84,18 @@ export const api = {
   listino:     { list: (p='') => req('GET', `/listino/${p}`), get: id => req('GET', `/listino/${id}`), create: b => req('POST', '/listino/', b), update: (id,b) => req('PATCH', `/listino/${id}`, b), del: id => req('DELETE', `/listino/${id}`) },
   categorieServizio: { list: (p='') => req('GET', `/categorie-servizio/${p}`), get: id => req('GET', `/categorie-servizio/${id}`), create: b => req('POST', '/categorie-servizio/', b), update: (id,b) => req('PATCH', `/categorie-servizio/${id}`, b), del: id => req('DELETE', `/categorie-servizio/${id}`) },
   listinoServizi:    { list: (p='') => req('GET', `/listino-servizi/${p}`), get: id => req('GET', `/listino-servizi/${id}`), create: b => req('POST', '/listino-servizi/', b), update: (id,b) => req('PATCH', `/listino-servizi/${id}`, b), del: id => req('DELETE', `/listino-servizi/${id}`) },
-  ordini:      { list: (p='') => req('GET', `/ordini/${p}`), get: id => req('GET', `/ordini/${id}`), create: b => req('POST', '/ordini/', b), update: (id,b) => req('PATCH', `/ordini/${id}`, b), del: id => req('DELETE', `/ordini/${id}`),
-                 listAllRighe: (p='') => req('GET', `/ordini/all-righe${p}`),
+  ordini:      { list: (p='') => req('GET', withDitta(`/ordini/${p}`)), get: id => req('GET', `/ordini/${id}`), create: b => req('POST', '/ordini/', { ...b, ditta: getDitta() }), update: (id,b) => req('PATCH', `/ordini/${id}`, b), del: id => req('DELETE', `/ordini/${id}`),
+                 listAllRighe: (p='') => req('GET', withDitta(`/ordini/all-righe${p}`)),
                  righe: { list: id => req('GET', `/ordini/${id}/righe`), create: (id,b) => req('POST', `/ordini/${id}/righe`, b), update: (id,rid,b) => req('PATCH', `/ordini/${id}/righe/${rid}`, b), del: (id,rid) => req('DELETE', `/ordini/${id}/righe/${rid}`) } },
-  ddt:         { list: (p='') => req('GET', `/ddt/${p}`), get: id => req('GET', `/ddt/${id}`), create: b => req('POST', '/ddt/', b), update: (id,b) => req('PATCH', `/ddt/${id}`, b), del: id => req('DELETE', `/ddt/${id}`),
-                 listAllRighe: (p='') => req('GET', '/ddt/all-righe' + p),
+  ddt:         { list: (p='') => req('GET', withDitta(`/ddt/${p}`)), get: id => req('GET', `/ddt/${id}`), create: b => req('POST', '/ddt/', { ...b, ditta: getDitta() }), update: (id,b) => req('PATCH', `/ddt/${id}`, b), del: id => req('DELETE', `/ddt/${id}`),
+                 listAllRighe: (p='') => req('GET', withDitta('/ddt/all-righe' + p)),
                  righe: { list: id => req('GET', `/ddt/${id}/righe`), create: (id,b) => req('POST', `/ddt/${id}/righe`, b), update: (id,rid,b) => req('PATCH', `/ddt/${id}/righe/${rid}`, b), del: (id,rid) => req('DELETE', `/ddt/${id}/righe/${rid}`) } },
-  fatture:     { list: (p='') => req('GET', `/fatture/${p}`), get: id => req('GET', `/fatture/${id}`), create: b => req('POST', '/fatture/', b), update: (id,b) => req('PATCH', `/fatture/${id}`, b), del: id => req('DELETE', `/fatture/${id}`),
+  fatture:     { list: (p='') => req('GET', withDitta(`/fatture/${p}`)), get: id => req('GET', `/fatture/${id}`), create: b => req('POST', '/fatture/', { ...b, ditta: getDitta() }), update: (id,b) => req('PATCH', `/fatture/${id}`, b), del: id => req('DELETE', `/fatture/${id}`),
                  righe: { list: id => req('GET', `/fatture/${id}/righe`), create: (id,b) => req('POST', `/fatture/${id}/righe`, b), update: (id,rid,b) => req('PATCH', `/fatture/${id}/righe/${rid}`, b), del: (id,rid) => req('DELETE', `/fatture/${id}/righe/${rid}`) } },
   dashboard: {
-    statoOrdini:       (p='') => req('GET', `/dashboard/stato-ordini${p}`),
-    scostamenti:       () => req('GET', '/dashboard/scostamenti-prezzi'),
-    ddtNonFatturati:   () => req('GET', '/dashboard/ddt-non-fatturati'),
-    esposizione:       () => req('GET', '/dashboard/esposizione-fornitori'),
-    dizionario:        (t='') => req('GET', `/dashboard/dizionario${t ? `?table_name=${t}` : ''}`),
+    statoOrdini:       (p='') => req('GET', withDitta(`/dashboard/stato-ordini${p}`)),
+    scostamenti:       () => req('GET', withDitta('/dashboard/scostamenti-prezzi')),
+    ddtNonFatturati:   () => req('GET', withDitta('/dashboard/ddt-non-fatturati')),
+    esposizione:       () => req('GET', withDitta('/dashboard/esposizione-fornitori')),
   },
 };

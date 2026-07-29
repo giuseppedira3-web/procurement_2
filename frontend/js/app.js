@@ -10,8 +10,8 @@ import { renderFatture }      from './pages/fatture.js';
 import { renderVettori }      from './pages/vettori.js';
 import { renderLogAttivita }  from './pages/log_attivita.js';
 import { renderTickets }      from './pages/tickets.js';
-import { setTitle, loading, toast } from './utils.js';
-import { api, getUtente, setUtente } from './api.js';
+import { setTitle, loading, toast, USER_COLORS } from './utils.js';
+import { api, getUtente, setUtente, getDitta, setDitta } from './api.js';
 
 const ROUTES = {
   '/':           { title: 'Dashboard',        render: renderDashboard },
@@ -74,7 +74,39 @@ function applicaUtente() {
     document.getElementById('utente-ruolo').className =
       `badge ${u.ruolo === 'admin' ? 'text-bg-primary' : 'text-bg-secondary'}`;
   }
+  const color = u ? USER_COLORS[u.username] : null;
+  box.style.setProperty('--user-color', color || '');
+  box.classList.toggle('utente-tinted', !!color);
 }
+
+// ── Ditta attiva (Ditta1 / Ditta2) ──────────────────────────────────────────
+function applicaDitta() {
+  const attiva = getDitta();
+  document.querySelectorAll('#ditta-switch button').forEach(b => {
+    b.classList.toggle('active', b.dataset.ditta === attiva);
+  });
+  document.body.dataset.ditta = attiva;
+}
+
+const ROUTE_DOCUMENTI = ['/ordini', '/ddt', '/fatture'];
+
+document.querySelectorAll('#ditta-switch button').forEach(btn => {
+  btn.onclick = () => {
+    if (btn.dataset.ditta === getDitta()) return;
+    setDitta(btn.dataset.ditta);
+    applicaDitta();
+    const hash = window.location.hash.replace('#', '') || '/';
+    const parts = hash.split('/').filter(Boolean);
+    const base = '/' + (parts[0] || '');
+    if (ROUTE_DOCUMENTI.includes(base) && parts[1]) {
+      window.location.hash = '#' + base; // dettaglio documento: torna alla lista (hashchange → handleRoute)
+    } else {
+      handleRoute();
+    }
+    toast(`Passato a ${btn.textContent.trim()}`);
+  };
+});
+applicaDitta();
 
 async function mostraLogin() {
   const overlay = document.getElementById('login-overlay');
@@ -83,15 +115,33 @@ async function mostraLogin() {
   box.innerHTML = '<div class="text-muted small">Caricamento utenti…</div>';
   try {
     const utenti = await api.auth.utenti();
-    box.innerHTML = utenti.map(u => `
-      <button class="btn btn-outline-primary d-flex justify-content-between align-items-center" data-username="${u.username}">
+    box.innerHTML = utenti.map(u => {
+      const color = USER_COLORS[u.username];
+      const cls = color ? 'btn login-user-btn' : 'btn btn-outline-primary';
+      const style = color ? ` style="--user-color:${color};border-color:${color};color:${color}"` : '';
+      return `
+      <button class="${cls} d-flex justify-content-between align-items-center" data-username="${u.username}"${style}>
         <span><i class="bi bi-person me-2"></i>${u.nome_completo || u.username}</span>
         <span class="badge ${u.ruolo === 'admin' ? 'text-bg-primary' : 'text-bg-secondary'}">${u.ruolo}</span>
-      </button>`).join('');
-    box.querySelectorAll('button[data-username]').forEach(btn => {
+      </button>`;
+    }).join('');
+    const eseguiLogin = async (username, pwd) => {
+      const utente = await api.auth.login(username, pwd);
+      setUtente(utente);
+      overlay.classList.add('d-none');
+      applicaUtente();
+      handleRoute();
+      toast(`Benvenuto, ${utente.nome_completo || utente.username}`);
+    };
+    box.querySelectorAll('button[data-username]').forEach((btn, i) => {
+      const utente = utenti[i];
       btn.onclick = () => {
         const username = btn.dataset.username;
         const nome = btn.querySelector('span').textContent.trim();
+        if (!utente.richiede_password) {
+          eseguiLogin(username, '').catch(e => toast(e.message, 'danger'));
+          return;
+        }
         box.innerHTML = `
           <p class="text-muted small mb-2">Password per <strong>${nome}</strong></p>
           <input type="password" class="form-control form-control-sm mb-2" id="pwd-input" placeholder="Password" />
@@ -107,12 +157,7 @@ async function mostraLogin() {
         const doLogin = async () => {
           const pwd = document.getElementById('pwd-input').value;
           try {
-            const utente = await api.auth.login(username, pwd);
-            setUtente(utente);
-            overlay.classList.add('d-none');
-            applicaUtente();
-            handleRoute();
-            toast(`Benvenuto, ${utente.nome_completo || utente.username}`);
+            await eseguiLogin(username, pwd);
           } catch (e) {
             const err = document.getElementById('pwd-error');
             err.textContent = e.message;

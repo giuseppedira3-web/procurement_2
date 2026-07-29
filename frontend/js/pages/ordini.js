@@ -25,6 +25,7 @@ const LIST_COLS = [
 let _righeViewActive = false;
 
 const STATI_ORDINE = ['confermato','parzialmente_consegnato','completato','annullato'];
+const INCOTERM = ['EXW','FOB','CIF','Reso','Partenza'];
 
 // Categorie per cui la lunghezza è caratteristica determinante del prodotto
 const CAT_CON_LUNGHEZZA = ['TRAVI', 'MERCANTILE', 'TUBOLARE'];
@@ -66,7 +67,7 @@ export async function renderOrdini(container, id) {
     { name: 'data_consegna_prevista', label: 'Cons. Prevista',    type: 'date',   col: 3 },
     { name: 'riferimento_fornitore',  label: 'Rif. Fornitore',    type: 'text',   col: 4 },
     { name: 'incoterm',               label: 'Incoterm',          type: 'select', col: 4,
-      options: ['EXW','FOB','CIF','Reso','Partenza'].map(v=>({value:v,label:v})) },
+      options: INCOTERM.map(v=>({value:v,label:v})) },
     { name: 'valuta',                 label: 'Valuta',            type: 'text',   col: 2, value: 'EUR' },
     { name: 'stato',                  label: 'Stato',             type: 'select', col: 3,
       options: STATI_ORDINE.map(v => ({ value: v, label: v.replace(/_/g,' ') })) },
@@ -341,7 +342,8 @@ async function renderDetail(container, id) {
         options: STATI_ORDINE.map(v => ({ value: v, label: v.replace(/_/g,' ') })) },
       { name: 'data_consegna_prevista', label: 'Cons. Prevista', type: 'date',   col: 3 },
       { name: 'riferimento_fornitore',  label: 'Rif. Fornitore', type: 'text',   col: 3 },
-      { name: 'incoterm',               label: 'Incoterm',       type: 'text',   col: 3 },
+      { name: 'incoterm',               label: 'Incoterm',       type: 'select', col: 3,
+        options: [{ value: '', label: '—' }, ...INCOTERM.map(v => ({ value: v, label: v }))] },
       { name: 'id_magazzino_origine',   label: 'Origine',        type: 'select', col: 4, options: magOpts },
       { name: 'comune_destinazione',    label: 'Destinazione',   type: 'text',   col: 4 },
       { name: 'id_vettore',             label: 'Vettore',        type: 'select', col: 4, options: vettOpts },

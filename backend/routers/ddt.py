@@ -18,6 +18,7 @@ router = APIRouter(prefix="/ddt", tags=["DDT"])
 async def list_ddt(
     id_fornitore: int | None = None,
     stato: str | None = None,
+    ditta: str | None = None,
     fatturato: bool | None = Query(None, description="Filtra DDT completamente fatturati o no"),
     q: str | None = Query(None, description="Cerca per codice o numero DDT fornitore"),
     limit: int = Query(50, le=500),
@@ -25,6 +26,9 @@ async def list_ddt(
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     filters, params = [], []
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"ditta = ${len(params)}")
     if id_fornitore is not None:
         params.append(id_fornitore)
         filters.append(f"id_fornitore = ${len(params)}")
@@ -43,7 +47,10 @@ async def list_ddt(
     params += [limit, offset]
     n = len(params)
     rows = await conn.fetch(
-        f"SELECT * FROM ddt {where} ORDER BY data_ddt DESC LIMIT ${n-1} OFFSET ${n}",
+        f"""SELECT d.*, v.ragione_sociale AS nome_vettore
+            FROM ddt d
+            LEFT JOIN vettori v ON v.id = d.id_vettore
+            {where} ORDER BY d.data_ddt DESC LIMIT ${n-1} OFFSET ${n}""",
         *params,
     )
     return [dict(r) for r in rows]
@@ -63,14 +70,14 @@ async def create_ddt(body: DdtCreate, conn: asyncpg.Connection = Depends(get_con
                     codice_ddt, id_fornitore, numero_ddt_fornitore,
                     data_ddt, data_ricezione,
                     numero_colli, peso_lordo_kg, peso_netto_kg,
-                    vettore, targa, stato, note
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                    id_vettore, targa, stato, ditta, note
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                 RETURNING *
                 """,
                 codice, body.id_fornitore, body.numero_ddt_fornitore,
                 body.data_ddt, body.data_ricezione,
                 body.numero_colli, body.peso_lordo_kg, body.peso_netto_kg,
-                body.vettore, body.targa, body.stato, body.note,
+                body.id_vettore, body.targa, body.stato, body.ditta, body.note,
             )
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "DDT già presente per questo fornitore con questo numero")
@@ -85,9 +92,13 @@ async def create_ddt(body: DdtCreate, conn: asyncpg.Connection = Depends(get_con
 async def list_all_righe_ddt(
     id_fornitore: int | None = None,
     fatturato: bool | None = None,
+    ditta: str | None = None,
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     filters, params = [], []
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"d.ditta = ${len(params)}")
     if id_fornitore is not None:
         params.append(id_fornitore)
         filters.append(f"d.id_fornitore = ${len(params)}")
@@ -125,7 +136,13 @@ async def list_all_righe_ddt(
 
 @router.get("/{id}", response_model=DdtConRighe)
 async def get_ddt(id: int, conn: asyncpg.Connection = Depends(get_conn)):
-    row = await conn.fetchrow("SELECT * FROM ddt WHERE id = $1", id)
+    row = await conn.fetchrow(
+        """SELECT d.*, v.ragione_sociale AS nome_vettore
+           FROM ddt d
+           LEFT JOIN vettori v ON v.id = d.id_vettore
+           WHERE d.id = $1""",
+        id,
+    )
     if not row:
         raise HTTPException(404)
     righe = await conn.fetch(
@@ -134,7 +151,8 @@ async def get_ddt(id: int, conn: asyncpg.Connection = Depends(get_conn)):
                   COALESCE(dr.descrizione_libera, orr.descrizione_libera) AS descrizione_libera,
                   dr.quantita_consegnata, dr.unita_misura, dr.quantita_kg,
                   dr.lotto, dr.numero_colata, dr.certificato_qualita, dr.note,
-                  dr.fatturato, dr.created_at, dr.updated_at
+                  dr.fatturato, dr.created_at, dr.updated_at,
+                  orr.qualita_acciaio, orr.lunghezza_mm
            FROM ddt_righe dr
            LEFT JOIN ordini_righe orr ON orr.id = dr.id_riga_ordine
            WHERE dr.id_ddt = $1 ORDER BY dr.numero_riga""",
@@ -187,9 +205,13 @@ async def list_righe_ddt(id: int, conn: asyncpg.Connection = Depends(get_conn)):
 
 @router.post("/{id}/righe", response_model=DdtRigaResponse, status_code=201)
 async def add_riga_ddt(id: int, body: DdtRigaCreate, conn: asyncpg.Connection = Depends(get_conn)):
-    ddt_row = await conn.fetchval("SELECT id FROM ddt WHERE id = $1", id)
-    if not ddt_row:
+    ddt_ditta = await conn.fetchval("SELECT ditta FROM ddt WHERE id = $1", id)
+    if ddt_ditta is None:
         raise HTTPException(404, "DDT non trovato")
+    if body.id_ordine is not None:
+        ordine_ditta = await conn.fetchval("SELECT ditta FROM ordini WHERE id = $1", body.id_ordine)
+        if ordine_ditta is not None and ordine_ditta != ddt_ditta:
+            raise HTTPException(422, "L'ordine collegato appartiene a un'altra ditta")
     try:
         row = await conn.fetchrow(
             """

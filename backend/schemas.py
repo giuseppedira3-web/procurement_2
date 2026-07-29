@@ -1,6 +1,9 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from pydantic import BaseModel, model_validator
+
+Ditta = Literal['ditta1', 'ditta2']
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +368,7 @@ class OrdineCreate(BaseModel):
     id_vettore: int | None = None
     zincatura: bool = False
     id_zincheria: int | None = None
+    ditta: Ditta
     note: str | None = None
 
 
@@ -381,6 +385,7 @@ class OrdineUpdate(BaseModel):
     id_vettore: int | None = None
     zincatura: bool | None = None
     id_zincheria: int | None = None
+    ditta: Ditta | None = None
     note: str | None = None
 
 
@@ -473,9 +478,10 @@ class DdtCreate(BaseModel):
     numero_colli: int | None = None
     peso_lordo_kg: Decimal | None = None
     peso_netto_kg: Decimal | None = None
-    vettore: str | None = None
+    id_vettore: int | None = None
     targa: str | None = None
     stato: str = "ricevuto"
+    ditta: Ditta
     note: str | None = None
 
 
@@ -486,15 +492,17 @@ class DdtUpdate(BaseModel):
     numero_colli: int | None = None
     peso_lordo_kg: Decimal | None = None
     peso_netto_kg: Decimal | None = None
-    vettore: str | None = None
+    id_vettore: int | None = None
     targa: str | None = None
     stato: str | None = None
+    ditta: Ditta | None = None
     note: str | None = None
 
 
 class DdtResponse(DdtCreate):
     id: int
     codice_ddt: str
+    nome_vettore: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -531,6 +539,8 @@ class DdtRigaUpdate(BaseModel):
 
 class DdtRigaResponse(DdtRigaCreate):
     id: int
+    qualita_acciaio: str | None = None
+    lunghezza_mm: Decimal | None = None
     id_ddt: int
     fatturato: bool
     created_at: datetime
@@ -564,6 +574,7 @@ class FatturaCreate(BaseModel):
     codice_destinatario: str | None = None
     tipo_documento_sdi: str | None = None
     data_ricezione_sdi: date | None = None
+    ditta: Ditta
     note: str | None = None
 
 
@@ -586,6 +597,7 @@ class FatturaUpdate(BaseModel):
     codice_destinatario: str | None = None
     tipo_documento_sdi: str | None = None
     data_ricezione_sdi: date | None = None
+    ditta: Ditta | None = None
     note: str | None = None
 
 
@@ -686,6 +698,7 @@ class UtenteResponse(BaseModel):
     nome_completo: str | None = None
     ruolo: str
     attivo: bool
+    richiede_password: bool
     created_at: datetime
 
 
