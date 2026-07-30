@@ -9,6 +9,11 @@ const LIST_COLS = [
   { key: 'data_ddt',             label: 'Data DDT',        fmt: v => fmt(v, 'date') },
   { key: 'data_ricezione',       label: 'Ricezione',       fmt: v => fmt(v, 'date') },
   { key: 'peso_netto_kg',        label: 'Peso Netto (kg)', fmt: v => fmt(v, 'number') },
+  { key: 'tipi_ordine',          label: 'Tipo Ordine',     filterable: false,
+    fmt: v => !v || !v.length ? '<span class="text-muted">—</span>'
+      : v.length > 1 ? `<span class="text-danger" title="Righe da ordini con incoterm diversi">${v.join(' / ')}</span>`
+      : v[0] },
+  { key: 'costo_trasporto',      label: 'Costo Trasporto', class: 'text-end', fmt: v => fmt(v, 'currency') },
   { key: 'stato',                label: 'Stato',           fmt: v => fmt(v, 'stato') },
 ];
 
@@ -52,6 +57,8 @@ export async function renderDdt(container, id) {
     { name: 'id_vettore',           label: 'Vettore',          type: 'select', col: 6,
       options: [{ value: '', label: '— nessuno —' }, ...vettori.filter(v => v.attivo).map(v => ({ value: v.id, label: v.ragione_sociale }))] },
     { name: 'targa',                label: 'Targa',            type: 'text',   col: 3 },
+    { name: 'costo_trasporto',      label: 'Costo Trasporto',  type: 'decimal', col: 3,
+      placeholder: 'lasciare vuoto se compreso nel prezzo materiale' },
     { name: 'stato',                label: 'Stato',            type: 'select', col: 3,
       options: STATI_DDT.map(v => ({ value: v, label: v })) },
     { name: 'note',                 label: 'Note',             type: 'textarea', col: 12 },
@@ -189,6 +196,8 @@ async function renderDetail(container, id) {
       { name: 'id_vettore',       label: 'Vettore',         type: 'select', col: 6,
         options: [{ value: '', label: '— nessuno —' }, ...vettori.filter(v => v.attivo).map(v => ({ value: v.id, label: v.ragione_sociale }))] },
       { name: 'targa',            label: 'Targa',           type: 'text',  col: 3 },
+      { name: 'costo_trasporto',  label: 'Costo Trasporto', type: 'decimal', col: 3,
+        placeholder: 'lasciare vuoto se compreso nel prezzo materiale' },
       { name: 'note',             label: 'Note',            type: 'textarea', col: 12 },
     ];
     showFormModal({
@@ -222,8 +231,9 @@ function ddtHeaderCard(ddt) {
     ${dl('N° Colli', ddt.numero_colli, 2)}
     ${dl('Peso Lordo', fmt(ddt.peso_lordo_kg, 'number') + ' kg', 2)}
     ${dl('Peso Netto', fmt(ddt.peso_netto_kg, 'number') + ' kg', 2)}
-    ${dl('Vettore', ddt.nome_vettore, 5)}
+    ${dl('Vettore', ddt.nome_vettore, 4)}
     ${dl('Targa', ddt.targa, 2)}
+    ${dl('Costo Trasporto', ddt.costo_trasporto != null ? fmt(ddt.costo_trasporto, 'currency') : null, 3)}
     ${ddt.note ? dl('Note', ddt.note, 12) : ''}
   </div></div>`;
 }

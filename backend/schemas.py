@@ -460,6 +460,8 @@ class OrdineRigaResponse(OrdineRigaCreate):
     stato_riga: str
     created_at: datetime
     updated_at: datetime
+    costo_trasporto_tot: Decimal | None = None
+    prezzo_trasporto_kg: Decimal | None = None
 
 
 class OrdineConRighe(OrdineResponse):
@@ -480,6 +482,7 @@ class DdtCreate(BaseModel):
     peso_netto_kg: Decimal | None = None
     id_vettore: int | None = None
     targa: str | None = None
+    costo_trasporto: Decimal | None = None
     stato: str = "ricevuto"
     ditta: Ditta
     note: str | None = None
@@ -494,6 +497,7 @@ class DdtUpdate(BaseModel):
     peso_netto_kg: Decimal | None = None
     id_vettore: int | None = None
     targa: str | None = None
+    costo_trasporto: Decimal | None = None
     stato: str | None = None
     ditta: Ditta | None = None
     note: str | None = None
@@ -503,6 +507,7 @@ class DdtResponse(DdtCreate):
     id: int
     codice_ddt: str
     nome_vettore: str | None = None
+    tipi_ordine: list[str] | None = None
     created_at: datetime
     updated_at: datetime
 

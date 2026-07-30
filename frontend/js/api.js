@@ -97,5 +97,7 @@ export const api = {
     scostamenti:       () => req('GET', withDitta('/dashboard/scostamenti-prezzi')),
     ddtNonFatturati:   () => req('GET', withDitta('/dashboard/ddt-non-fatturati')),
     esposizione:       () => req('GET', withDitta('/dashboard/esposizione-fornitori')),
+    totaliOrdini:      () => req('GET', withDitta('/dashboard/totali-ordini')),
+    ordiniCategoriaMensile: () => req('GET', withDitta('/dashboard/ordini-categoria-mensile')),
   },
 };

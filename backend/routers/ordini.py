@@ -153,7 +153,11 @@ async def get_ordine(id: int, conn: asyncpg.Connection = Depends(get_conn)):
     if not row:
         raise HTTPException(404)
     righe = await conn.fetch(
-        "SELECT * FROM ordini_righe WHERE id_ordine = $1 ORDER BY numero_riga", id
+        """SELECT r.*, t.costo_trasporto_tot, t.prezzo_trasporto_kg
+           FROM ordini_righe r
+           LEFT JOIN v_trasporto_righe_ordine t ON t.id_riga_ordine = r.id
+           WHERE r.id_ordine = $1 ORDER BY r.numero_riga""",
+        id,
     )
     result = dict(row)
     result["righe"] = [dict(r) for r in righe]
@@ -205,7 +209,11 @@ async def list_righe_ordine(id: int, conn: asyncpg.Connection = Depends(get_conn
     if not ordine:
         raise HTTPException(404, "Ordine non trovato")
     rows = await conn.fetch(
-        "SELECT * FROM ordini_righe WHERE id_ordine = $1 ORDER BY numero_riga", id
+        """SELECT r.*, t.costo_trasporto_tot, t.prezzo_trasporto_kg
+           FROM ordini_righe r
+           LEFT JOIN v_trasporto_righe_ordine t ON t.id_riga_ordine = r.id
+           WHERE r.id_ordine = $1 ORDER BY r.numero_riga""",
+        id,
     )
     return [dict(r) for r in rows]
 

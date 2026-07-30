@@ -1,26 +1,76 @@
-import { api } from '../api.js';
+import { api, getUtente } from '../api.js';
 import { fmt } from '../utils.js';
+import { renderGroupedBarChart } from '../components.js';
+
+const CATEGORIE_CORE = [
+  { key: 'LAMIERA',    label: 'Lamiera',    color: '#2a78d6' },
+  { key: 'MERCANTILE', label: 'Mercantile', color: '#eb6834' },
+  { key: 'TRAVI',      label: 'Travi',      color: '#1baf7a' },
+  { key: 'TUBOLARE',   label: 'Tubolare',   color: '#eda100' },
+];
+
+// Ultimi 12 mesi, mese corrente incluso, dal più vecchio al più recente.
+function ultimi12Mesi() {
+  const now = new Date();
+  return Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }).replace('.', '');
+    return { key, label };
+  });
+}
 
 export async function renderDashboard(container) {
-  const [ordini, ddt, esposizione] = await Promise.all([
+  const isAdmin = getUtente()?.ruolo === 'admin';
+
+  const [ordini, ddt, esposizione, totali, ordiniCategoria] = await Promise.all([
     api.dashboard.statoOrdini('?limit=1000'),
     api.dashboard.ddtNonFatturati(),
     api.dashboard.esposizione(),
+    isAdmin ? api.dashboard.totaliOrdini() : Promise.resolve(null),
+    isAdmin ? api.dashboard.ordiniCategoriaMensile() : Promise.resolve([]),
   ]);
 
   const totOrdini    = ordini.length;
-  const inCorso      = ordini.filter(o => o.stato !== 'completato' && o.stato !== 'annullato').length;
   const ddtAperti    = ddt.length;
   const scadute      = esposizione.filter(e => e.urgenza === 'scaduta');
   const totDaPagare  = esposizione.reduce((s, e) => s + Number(e.totale_da_pagare || 0), 0);
 
-  // Ordini non totalmente evasi: né annullati, né consegnati+fatturati al 100%
-  const ordiniAperti = ordini.filter(o =>
-    o.stato !== 'annullato' &&
-    (Number(o.perc_consegnato || 0) < 100 || Number(o.perc_fatturato || 0) < 100)
-  );
+  const mesi = ultimi12Mesi();
+  const datiCategoria = {};
+  for (const r of ordiniCategoria) {
+    (datiCategoria[r.mese] ??= {})[r.categoria] = Number(r.peso_kg);
+  }
+
+  // Ordini aperti: hanno almeno una chiamata (riga) aperta o parziale.
+  // La fatturazione non è ancora tracciata in modo affidabile, quindi per
+  // ora non entra in questo conteggio.
+  const ordiniAperti = ordini.filter(o => o.stato !== 'annullato' && o.ha_righe_aperte);
+  const inCorso = ordiniAperti.length;
 
   container.innerHTML = `
+  ${isAdmin ? `
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      <div class="stat-card d-flex justify-content-between align-items-start">
+        <div>
+          <div class="stat-value text-dark">${fmt(totali.peso_totale_kg, 'peso_t')}</div>
+          <div class="stat-label">Peso totale ordinato</div>
+        </div>
+        <i class="bi bi-box-seam stat-icon text-dark"></i>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="stat-card d-flex justify-content-between align-items-start">
+        <div>
+          <div class="stat-value text-dark">${fmt(totali.importo_totale, 'currency')}</div>
+          <div class="stat-label">Valore totale ordinato</div>
+        </div>
+        <i class="bi bi-currency-euro stat-icon text-dark"></i>
+      </div>
+    </div>
+  </div>` : ''}
+
   <div class="row g-3 mb-4">
     <div class="col-md-3">
       <div class="stat-card d-flex justify-content-between align-items-start">
@@ -77,7 +127,7 @@ export async function renderDashboard(container) {
           </tr></thead>
           <tbody>
             ${ordiniAperti.map(o => `<tr>
-              <td><a href="#/ordini/${o.codice_ordine}" class="fw-semibold text-decoration-none">${o.codice_ordine}</a></td>
+              <td><a href="#/ordini/${o.id_ordine}" class="fw-semibold text-decoration-none">${o.codice_ordine}</a></td>
               <td>${o.fornitore}</td>
               <td>${fmt(o.stato, 'stato')}</td>
               <td>
@@ -136,5 +186,25 @@ export async function renderDashboard(container) {
         </table>
       </div>
     </div>` : ''}
+
+    <!-- Ordini per categoria core, ultimi 12 mesi (solo admin) -->
+    ${isAdmin ? `
+    <div class="col-12">
+      <div class="table-card p-3">
+        <div class="fw-semibold small mb-2">
+          <i class="bi bi-bar-chart me-2 text-primary"></i>Peso Ordinato per Categoria — Ultimi 12 Mesi
+        </div>
+        <div id="chart-categoria"></div>
+      </div>
+    </div>` : ''}
   </div>`;
+
+  if (isAdmin) {
+    renderGroupedBarChart(container.querySelector('#chart-categoria'), {
+      series: CATEGORIE_CORE,
+      xValues: mesi,
+      data: datiCategoria,
+      formatValue: v => fmt(v, 'peso_t'),
+    });
+  }
 }

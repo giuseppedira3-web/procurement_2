@@ -190,6 +190,158 @@ export function renderTable(container, { columns, rows, actions = {}, emptyMsg =
 }
 
 // ---------------------------------------------------------------------------
+// Grafico a barre raggruppate (mese × categoria) con vista tabella alternativa
+// ---------------------------------------------------------------------------
+
+const CHART_INK = { grid: '#e1e0d9', axis: '#c3c2b7', muted: '#898781' };
+
+function chartNiceMax(v) {
+  if (v <= 0) return 1;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const step of [1, 2, 2.5, 5, 10]) {
+    if (v <= step * magnitude) return step * magnitude;
+  }
+  return 10 * magnitude;
+}
+
+// Path di una barra con angoli arrotondati solo in alto, squadrata sulla base.
+function chartBarPath(x, y, w, h, r) {
+  if (h <= 0) return '';
+  const rr = Math.min(r, h, w / 2);
+  return `M${x},${y + rr} Q${x},${y} ${x + rr},${y} L${x + w - rr},${y} Q${x + w},${y} ${x + w},${y + rr} L${x + w},${y + h} L${x},${y + h} Z`;
+}
+
+/**
+ * series: [{ key, label, color }]
+ * xValues: [{ key, label }]
+ * data: { [xKey]: { [seriesKey]: number } }
+ * formatValue: (n) => string, usata su assi/tooltip/tabella
+ */
+export function renderGroupedBarChart(container, { series, xValues, data, formatValue = String, emptyMsg = 'Nessun dato disponibile' }) {
+  const hasData = xValues.some(x => series.some(s => (data[x.key]?.[s.key] || 0) > 0));
+  let view = 'chart';
+
+  function chartHtml() {
+    const W = 860, H = 320, marginL = 54, marginR = 10, marginT = 10, marginB = 34;
+    const plotW = W - marginL - marginR, plotH = H - marginT - marginB;
+    const maxVal = Math.max(...xValues.flatMap(x => series.map(s => data[x.key]?.[s.key] || 0)));
+    const yMax = chartNiceMax(maxVal);
+    const yTicks = 4;
+    const groupW = plotW / xValues.length;
+    const barGap = 2, groupPad = 6;
+    const barW = Math.min(24, (groupW - groupPad * 2 - barGap * (series.length - 1)) / series.length);
+
+    const gridlines = Array.from({ length: yTicks + 1 }, (_, i) => {
+      const val = yMax * i / yTicks;
+      const y = marginT + plotH - (val / yMax) * plotH;
+      return `
+        <line x1="${marginL}" y1="${y}" x2="${W - marginR}" y2="${y}" stroke="${CHART_INK.grid}" stroke-width="1" />
+        <text x="${marginL - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="${CHART_INK.muted}">${formatValue(val)}</text>`;
+    }).join('');
+
+    const bars = xValues.map((x, i) => {
+      const x0 = marginL + i * groupW;
+      const label = `
+        <text x="${x0 + groupW / 2}" y="${H - marginB + 16}" text-anchor="middle" font-size="11" fill="${CHART_INK.muted}">${x.label}</text>`;
+      const groupBars = series.map((s, j) => {
+        const val = data[x.key]?.[s.key] || 0;
+        const barH = (val / yMax) * plotH;
+        const bx = x0 + groupPad + j * (barW + barGap);
+        const by = marginT + plotH - barH;
+        const path = chartBarPath(bx, by, barW, barH, 4);
+        const title = `${s.label} — ${x.label}: ${formatValue(val)}`;
+        return path ? `<path d="${path}" fill="${s.color}" tabindex="0" role="img" aria-label="${title}"
+          class="chart-bar" data-title="${title}"></path>` : '';
+      }).join('');
+      return groupBars + label;
+    }).join('');
+
+    const baseline = `<line x1="${marginL}" y1="${marginT + plotH}" x2="${W - marginR}" y2="${marginT + plotH}" stroke="${CHART_INK.axis}" stroke-width="1" />`;
+
+    const legend = series.map(s => `
+      <span class="d-inline-flex align-items-center me-3 mb-1">
+        <span class="d-inline-block rounded-1 me-1" style="width:12px;height:12px;background:${s.color}"></span>
+        <span class="small text-muted">${s.label}</span>
+      </span>`).join('');
+
+    return `
+      <div class="d-flex flex-wrap align-items-center justify-content-between mb-2">
+        <div>${legend}</div>
+        <button class="btn btn-outline-secondary btn-sm" data-action="chart-toggle-view">
+          <i class="bi bi-table me-1"></i>Vedi tabella
+        </button>
+      </div>
+      <div class="chart-wrap position-relative">
+        <svg viewBox="0 0 ${W} ${H}" class="w-100 h-auto" role="img" aria-label="Quantità ordinate per categoria, ultimi 12 mesi">
+          ${gridlines}${baseline}${bars}
+        </svg>
+        <div class="chart-tooltip d-none"></div>
+      </div>`;
+  }
+
+  function tableHtml() {
+    const rows = xValues.map(x => {
+      const vals = series.map(s => data[x.key]?.[s.key] || 0);
+      const tot = vals.reduce((a, b) => a + b, 0);
+      return `<tr>
+        <td>${x.label}</td>
+        ${vals.map(v => `<td class="text-end" style="font-variant-numeric:tabular-nums">${formatValue(v)}</td>`).join('')}
+        <td class="text-end fw-semibold" style="font-variant-numeric:tabular-nums">${formatValue(tot)}</td>
+      </tr>`;
+    }).join('');
+    return `
+      <div class="d-flex justify-content-end mb-2">
+        <button class="btn btn-outline-secondary btn-sm" data-action="chart-toggle-view">
+          <i class="bi bi-bar-chart me-1"></i>Vedi grafico
+        </button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr>
+            <th>Mese</th>${series.map(s => `<th class="text-end">${s.label}</th>`).join('')}<th class="text-end">Totale</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function bind() {
+    const btn = container.querySelector('[data-action="chart-toggle-view"]');
+    if (btn) btn.onclick = () => { view = view === 'chart' ? 'table' : 'chart'; draw(); };
+
+    const tooltip = container.querySelector('.chart-tooltip');
+    if (!tooltip) return;
+    container.querySelectorAll('.chart-bar').forEach(bar => {
+      const show = () => {
+        const wrap = container.querySelector('.chart-wrap');
+        const barBox = bar.getBoundingClientRect();
+        const wrapBox = wrap.getBoundingClientRect();
+        tooltip.textContent = bar.dataset.title;
+        tooltip.classList.remove('d-none');
+        tooltip.style.left = `${barBox.left - wrapBox.left + barBox.width / 2}px`;
+        tooltip.style.top = `${barBox.top - wrapBox.top}px`;
+      };
+      const hide = () => tooltip.classList.add('d-none');
+      bar.addEventListener('pointerenter', show);
+      bar.addEventListener('focus', show);
+      bar.addEventListener('pointerleave', hide);
+      bar.addEventListener('blur', hide);
+    });
+  }
+
+  function draw() {
+    if (!hasData) {
+      container.innerHTML = `<div class="text-center py-5 text-muted"><i class="bi bi-bar-chart fs-1 d-block mb-2"></i>${emptyMsg}</div>`;
+      return;
+    }
+    container.innerHTML = view === 'chart' ? chartHtml() : tableHtml();
+    bind();
+  }
+
+  draw();
+}
+
+// ---------------------------------------------------------------------------
 // Generic modal form
 // ---------------------------------------------------------------------------
 /**

@@ -47,9 +47,15 @@ async def list_ddt(
     params += [limit, offset]
     n = len(params)
     rows = await conn.fetch(
-        f"""SELECT d.*, v.ragione_sociale AS nome_vettore
+        f"""SELECT d.*, v.ragione_sociale AS nome_vettore, io.tipi_ordine
             FROM ddt d
             LEFT JOIN vettori v ON v.id = d.id_vettore
+            LEFT JOIN LATERAL (
+                SELECT array_agg(DISTINCT o.incoterm) AS tipi_ordine
+                FROM ddt_righe dr
+                JOIN ordini o ON o.id = dr.id_ordine
+                WHERE dr.id_ddt = d.id AND o.incoterm IS NOT NULL
+            ) io ON true
             {where} ORDER BY d.data_ddt DESC LIMIT ${n-1} OFFSET ${n}""",
         *params,
     )
@@ -70,14 +76,14 @@ async def create_ddt(body: DdtCreate, conn: asyncpg.Connection = Depends(get_con
                     codice_ddt, id_fornitore, numero_ddt_fornitore,
                     data_ddt, data_ricezione,
                     numero_colli, peso_lordo_kg, peso_netto_kg,
-                    id_vettore, targa, stato, ditta, note
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                    id_vettore, targa, costo_trasporto, stato, ditta, note
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                 RETURNING *
                 """,
                 codice, body.id_fornitore, body.numero_ddt_fornitore,
                 body.data_ddt, body.data_ricezione,
                 body.numero_colli, body.peso_lordo_kg, body.peso_netto_kg,
-                body.id_vettore, body.targa, body.stato, body.ditta, body.note,
+                body.id_vettore, body.targa, body.costo_trasporto, body.stato, body.ditta, body.note,
             )
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "DDT già presente per questo fornitore con questo numero")

@@ -1,8 +1,69 @@
 from fastapi import APIRouter, Depends, Query
 import asyncpg
 from database import get_conn
+from routers.auth import require_admin
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard & Report"])
+
+CATEGORIE_CORE = ("LAMIERA", "MERCANTILE", "TRAVI", "TUBOLARE")
+
+
+@router.get("/totali-ordini")
+async def totali_ordini(
+    ditta: str | None = None,
+    admin: dict = Depends(require_admin),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Peso (kg) e importo totali ordinati, sommati dalle righe ordine. Solo admin."""
+    filters, params = [], []
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"o.ditta = ${len(params)}")
+    where = ("WHERE " + " AND ".join(filters)) if filters else ""
+    row = await conn.fetchrow(
+        f"""SELECT COALESCE(SUM(r.quantita_kg), 0)   AS peso_totale_kg,
+                   COALESCE(SUM(r.importo_riga), 0)   AS importo_totale
+            FROM ordini_righe r
+            JOIN ordini o ON o.id = r.id_ordine
+            {where}""",
+        *params,
+    )
+    return dict(row)
+
+
+@router.get("/ordini-categoria-mensile")
+async def ordini_categoria_mensile(
+    ditta: str | None = None,
+    admin: dict = Depends(require_admin),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Peso e importo ordinati per categoria prodotto core (LAMIERA, MERCANTILE,
+    TRAVI, TUBOLARE), aggregati per mese, sugli ultimi 12 mesi (mese corrente incluso).
+    Solo admin.
+    """
+    filters, params = [
+        "cp.codice = ANY($1)",
+        "o.data_ordine >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'",
+    ], [list(CATEGORIE_CORE)]
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"o.ditta = ${len(params)}")
+    where = "WHERE " + " AND ".join(filters)
+    rows = await conn.fetch(
+        f"""SELECT to_char(date_trunc('month', o.data_ordine), 'YYYY-MM') AS mese,
+                   cp.codice                                              AS categoria,
+                   COALESCE(SUM(r.quantita_kg), 0)                        AS peso_kg,
+                   COALESCE(SUM(r.importo_riga), 0)                       AS importo
+            FROM ordini_righe r
+            JOIN ordini o ON o.id = r.id_ordine
+            JOIN prodotti p ON p.id = r.id_prodotto
+            JOIN categorie_prodotto cp ON cp.id = p.id_categoria
+            {where}
+            GROUP BY 1, 2
+            ORDER BY 1, 2""",
+        *params,
+    )
+    return [dict(r) for r in rows]
 
 
 @router.get("/stato-ordini")

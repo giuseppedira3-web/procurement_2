@@ -278,6 +278,7 @@ async function renderDetail(container, id) {
     const s4 = Number(r.sconto_4_percentuale || 0);
     const prod = r.id_prodotto ? prodMap[r.id_prodotto] : null;
     const zinc = r.prezzo_zincatura != null ? Number(r.prezzo_zincatura) : 0;
+    const trasp = r.prezzo_trasporto_kg != null ? Number(r.prezzo_trasporto_kg) : 0;
     const netMat = Number(r.prezzo_unitario) * (1+s1/100) * (1+s2/100) * (1+s3/100) * (1+s4/100);
     return {
       ...r,
@@ -285,9 +286,11 @@ async function renderDetail(container, id) {
       _prodottoCodice: prod && prod.desc && prod.codice ? prod.codice : null,
       _s1: s1, _s2: s2, _s3: s3, _s4: s4,
       _zinc: zinc || null,
-      _prezzoNetto: netMat + zinc,
+      _trasp: trasp || null,
+      _prezzoNetto: netMat + zinc + trasp,
     };
   });
+  const hasTrasporto = detailRows.some(r => r._trasp);
 
   const DETAIL_COLS = [
     { key: 'numero_riga',         label: '#',          class: 'text-center' },
@@ -305,6 +308,8 @@ async function renderDetail(container, id) {
     { key: '_s4', label: 'Sc.4',  class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
     { key: '_zinc', label: 'Zinc.', class: 'text-end', filterable: false,
       fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
+    { key: '_trasp', label: 'Trasp.', class: 'text-end', filterable: false,
+      fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
     { key: '_prezzoNetto',        label: 'P.Netto',    class: 'text-end', filterable: false,
       fmt: v => `<strong>${fmt(v, 'number')}</strong>` },
     { key: 'importo_riga',        label: 'Importo',    class: 'text-end', fmt: v => fmt(v, 'currency') },
@@ -321,7 +326,9 @@ async function renderDetail(container, id) {
   righeWrap.innerHTML = `<div class="table-toolbar fw-semibold small"><i class="bi bi-list-ul me-2"></i>Righe Ordine</div><div id="righe-tbl"></div>`;
   container.appendChild(righeWrap);
 
-  const cols = ord.zincatura ? DETAIL_COLS : DETAIL_COLS.filter(c => c.key !== '_zinc');
+  const cols = DETAIL_COLS
+    .filter(c => c.key !== '_zinc' || ord.zincatura)
+    .filter(c => c.key !== '_trasp' || hasTrasporto);
   renderTable(righeWrap.querySelector('#righe-tbl'), {
     columns: cols,
     rows: detailRows,

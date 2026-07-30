@@ -197,6 +197,23 @@ body[data-ditta="ditta1"] #ditta-switch button.active {
   padding: .35rem .5rem;
   text-transform: none;
 }
+
+/* Grafico a barre raggruppate */
+.chart-bar { cursor: pointer; transition: filter .1s; }
+.chart-bar:hover, .chart-bar:focus { filter: brightness(1.12); outline: none; }
+.chart-tooltip {
+  position: absolute;
+  transform: translate(-50%, -100%) translateY(-8px);
+  background: #0b0b0b;
+  color: #fff;
+  font-size: .75rem;
+  padding: .35rem .6rem;
+  border-radius: .375rem;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+}
 .table-filter-input {
   font-size: .75rem;
   padding: .2rem .4rem;
