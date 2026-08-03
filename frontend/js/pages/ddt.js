@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { fmt, toast, setHeaderActions, setTitle, qualitaBadge } from '../utils.js';
+import { fmt, toast, setHeaderActions, setTitle, qualitaBadge, countLabel } from '../utils.js';
 import { renderTable, showFormModal, deleteWithConfirm } from '../components.js';
 
 const LIST_COLS = [
@@ -34,13 +34,14 @@ const RIGHE_COLS = [
 ];
 
 const STATI_DDT = ['ricevuto','verificato','fatturato','contestato'];
+const LIST_LIMIT = 1000;
 
 let _righeViewActive = false;
 
 export async function renderDdt(container, id) {
   if (id) return renderDetail(container, id);
 
-  const [rows, fornitori, vettori] = await Promise.all([api.ddt.list(), api.fornitori.list(), api.vettori.list()]);
+  const [rows, fornitori, vettori] = await Promise.all([api.ddt.list(`?limit=${LIST_LIMIT}`), api.fornitori.list(), api.vettori.list()]);
   const fornMap = Object.fromEntries(fornitori.map(f => [f.id, f.ragione_sociale]));
   rows.forEach(r => r._fornitore = fornMap[r.id_fornitore] || '—');
 
@@ -111,7 +112,7 @@ export async function renderDdt(container, id) {
 
   const wrap = document.createElement('div');
   wrap.className = 'table-card';
-  wrap.innerHTML = `<div class="table-toolbar"><span class="text-muted small">${rows.length} DDT</span></div><div id="tbl-body"></div>`;
+  wrap.innerHTML = `<div class="table-toolbar">${countLabel(rows.length, LIST_LIMIT, 'DDT')}</div><div id="tbl-body"></div>`;
   container.innerHTML = '';
   container.appendChild(wrap);
   renderHeader();
@@ -148,8 +149,8 @@ async function renderDetail(container, id) {
   // Se il DDT è di un'acciaieria, si escludono gli ordini con zincatura:
   // quelli arrivano tramite il DDT della zincheria, non dell'acciaieria.
   const ordiniList = fornitore.tipo === 'zincheria'
-    ? await api.ordini.list(`?id_zincheria=${ddt.id_fornitore}&limit=500`)
-    : (await api.ordini.list(`?id_fornitore=${ddt.id_fornitore}&limit=500`)).filter(o => !o.zincatura);
+    ? await api.ordini.list(`?id_zincheria=${ddt.id_fornitore}&limit=${LIST_LIMIT}`)
+    : (await api.ordini.list(`?id_fornitore=${ddt.id_fornitore}&limit=${LIST_LIMIT}`)).filter(o => !o.zincatura);
 
   const prodMap = Object.fromEntries(prodotti.map(p => [p.id, p.codice_prodotto]));
 

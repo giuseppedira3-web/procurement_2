@@ -65,6 +65,18 @@ export const USER_COLORS = {
   enzo:     '#6f42c1',
 };
 
+// Etichetta "N record" per le liste paginate: diventa rossa quando il numero
+// di righe caricate raggiunge il limite richiesto all'API, segnalando che
+// potrebbero mancare record oltre quel limite (es. i più vecchi, essendo le
+// liste ordinate per data decrescente). `checkCount` permette di valutare il
+// limite su un totale diverso da quello mostrato (es. lista poi filtrata lato client).
+export function countLabel(count, limit, label, checkCount = count) {
+  if (checkCount < limit) return `<span class="text-muted small">${count} ${label}</span>`;
+  return `<span class="text-danger fw-semibold small" title="Limite di ${limit} record raggiunto: alcuni record più vecchi potrebbero non essere mostrati. Affina la ricerca o i filtri.">
+    <i class="bi bi-exclamation-triangle-fill me-1"></i>${count} ${label}
+  </span>`;
+}
+
 export function qs(sel, ctx = document) { return ctx.querySelector(sel); }
 export function qsa(sel, ctx = document) { return [...ctx.querySelectorAll(sel)]; }
 

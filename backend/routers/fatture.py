@@ -21,7 +21,7 @@ async def list_fatture(
     tipo_documento_sdi: str | None = None,
     ditta: str | None = None,
     q: str | None = Query(None, description="Cerca per codice o numero fattura fornitore"),
-    limit: int = Query(50, le=500),
+    limit: int = Query(50, le=1000),
     offset: int = Query(0, ge=0),
     conn: asyncpg.Connection = Depends(get_conn),
 ):

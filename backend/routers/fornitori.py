@@ -42,7 +42,7 @@ async def list_fornitori(
     tipo: str | None = None,
     citta: str | None = None,
     q: str | None = Query(None, description="Ricerca su ragione sociale o codice"),
-    limit: int = Query(50, le=500),
+    limit: int = Query(50, le=1000),
     offset: int = Query(0, ge=0),
     conn: asyncpg.Connection = Depends(get_conn),
 ):

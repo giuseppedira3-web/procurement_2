@@ -1,7 +1,9 @@
 import { api } from '../api.js';
-import { fmt, toast, setHeaderActions, setTitle } from '../utils.js';
+import { fmt, toast, setHeaderActions, setTitle, countLabel } from '../utils.js';
 import { renderTable, showFormModal, showImportModal, deleteWithConfirm } from '../components.js';
 import { renderVettori } from './vettori.js';
+
+const LIST_LIMIT = 1000;
 
 const COLUMNS = [
   { key: 'codice_fornitore', label: 'Codice', width: '110px', fmt: v => `<span class="fw-mono fw-semibold">${v}</span>` },
@@ -71,7 +73,7 @@ async function renderFornitoriTipo(container, tipo) {
 
   // Carico tutti i fornitori: 'rows' filtrato per tipo (visualizzazione),
   // 'all' per calcolare il prossimo codice libero (univoco sull'intera tabella).
-  const all  = await api.fornitori.list('?limit=500');
+  const all  = await api.fornitori.list(`?limit=${LIST_LIMIT}`);
   const rows = all.filter(r => r.tipo === tipo);
 
   const bulkBtns = isZinc ? '' : `
@@ -90,7 +92,7 @@ async function renderFornitoriTipo(container, tipo) {
   wrap.className = 'table-card';
   wrap.innerHTML = `<div class="table-toolbar">
     <input class="form-control form-control-sm" style="max-width:250px" id="search-q" placeholder="Cerca...">
-    <span class="ms-auto text-muted small">${rows.length} ${plurale}</span>
+    <span class="ms-auto">${countLabel(rows.length, LIST_LIMIT, plurale, all.length)}</span>
   </div><div id="tbl-body"></div>`;
   container.innerHTML = '';
   container.appendChild(wrap);

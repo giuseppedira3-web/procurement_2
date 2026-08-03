@@ -342,6 +342,85 @@ export function renderGroupedBarChart(container, { series, xValues, data, format
 }
 
 // ---------------------------------------------------------------------------
+// Autocomplete generico su un input di testo
+// Filtra "contiene" (non solo prefisso): utile quando i codici da cercare
+// sono tanti e l'utente ricorda solo una parte del codice.
+// ---------------------------------------------------------------------------
+/**
+ * items: array di oggetti su cui cercare
+ * getText: item => stringa su cui matchare (case-insensitive, "contiene")
+ * renderItem: item => HTML della singola voce nel menu
+ * onSelect: item => chiamato alla selezione (click o Invio su voce evidenziata)
+ * minChars/maxResults: soglie di attivazione e di taglio risultati
+ */
+export function attachAutocomplete(input, { items, getText, renderItem, onSelect, minChars = 1, maxResults = 20 }) {
+  const wrap = input.parentElement;
+  if (getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+  const menu = document.createElement('div');
+  menu.className = 'autocomplete-menu d-none';
+  menu.setAttribute('role', 'listbox');
+  wrap.appendChild(menu);
+
+  let matches = [];
+  let activeIndex = -1;
+
+  function close() {
+    menu.classList.add('d-none');
+    menu.innerHTML = '';
+    matches = [];
+    activeIndex = -1;
+  }
+
+  function highlight() {
+    [...menu.children].forEach((el, i) => el.classList.toggle('active', i === activeIndex));
+    menu.children[activeIndex]?.scrollIntoView({ block: 'nearest' });
+  }
+
+  function select(item) {
+    onSelect(item);
+    close();
+  }
+
+  function open(query) {
+    const q = query.trim().toLowerCase();
+    if (q.length < minChars) { close(); return; }
+    // Priorità ai codici che iniziano con quanto digitato, poi agli altri
+    // che lo contengono a metà.
+    const starts = [], contains = [];
+    for (const item of items) {
+      const idx = getText(item).toLowerCase().indexOf(q);
+      if (idx === 0) starts.push(item);
+      else if (idx > 0) contains.push(item);
+    }
+    matches = [...starts, ...contains].slice(0, maxResults);
+    activeIndex = -1;
+    if (!matches.length) { close(); return; }
+    menu.innerHTML = matches.map((item, i) =>
+      `<div class="autocomplete-item" role="option" data-idx="${i}">${renderItem(item)}</div>`).join('');
+    menu.classList.remove('d-none');
+    menu.querySelectorAll('.autocomplete-item').forEach(el => {
+      // mousedown (non click) + preventDefault: evita che l'input perda il
+      // focus/scateni il blur prima che la selezione sia applicata.
+      el.addEventListener('mousedown', e => {
+        e.preventDefault();
+        select(matches[Number(el.dataset.idx)]);
+      });
+    });
+  }
+
+  input.addEventListener('input', () => open(input.value));
+  input.addEventListener('focus', () => { if (input.value) open(input.value); });
+  input.addEventListener('keydown', e => {
+    if (menu.classList.contains('d-none')) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIndex = Math.min(activeIndex + 1, matches.length - 1); highlight(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIndex = Math.max(activeIndex - 1, 0); highlight(); }
+    else if (e.key === 'Enter' && activeIndex >= 0) { e.preventDefault(); e.stopImmediatePropagation(); select(matches[activeIndex]); }
+    else if (e.key === 'Escape') { close(); }
+  });
+  input.addEventListener('blur', () => setTimeout(close, 150));
+}
+
+// ---------------------------------------------------------------------------
 // Generic modal form
 // ---------------------------------------------------------------------------
 /**

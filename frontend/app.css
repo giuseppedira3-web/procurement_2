@@ -267,6 +267,30 @@ body[data-ditta="ditta1"] #ditta-switch button.active {
 /* Progress bar in dashboard */
 .progress { height: 6px; }
 
+/* Autocomplete su input di testo (es. codice prodotto in riga ordine) */
+.autocomplete-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1060; /* sopra al contenuto del modal Bootstrap (1055) */
+  max-height: 260px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: .375rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  margin-top: .15rem;
+}
+.autocomplete-item {
+  padding: .4rem .65rem;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f1f1;
+}
+.autocomplete-item:last-child { border-bottom: none; }
+.autocomplete-item:hover,
+.autocomplete-item.active { background: #e7f1ff; }
+
 /* Spinner overlay */
 .content-loading {
   display: flex; align-items: center; justify-content: center;

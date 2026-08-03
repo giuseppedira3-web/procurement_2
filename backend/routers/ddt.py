@@ -21,7 +21,7 @@ async def list_ddt(
     ditta: str | None = None,
     fatturato: bool | None = Query(None, description="Filtra DDT completamente fatturati o no"),
     q: str | None = Query(None, description="Cerca per codice o numero DDT fornitore"),
-    limit: int = Query(50, le=500),
+    limit: int = Query(50, le=1000),
     offset: int = Query(0, ge=0),
     conn: asyncpg.Connection = Depends(get_conn),
 ):

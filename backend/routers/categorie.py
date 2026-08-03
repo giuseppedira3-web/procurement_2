@@ -9,7 +9,7 @@ router = APIRouter(prefix="/categorie", tags=["Categorie Prodotto"])
 @router.get("/", response_model=list[CategoriaResponse])
 async def list_categorie(
     tipo_prezzo: str | None = None,
-    limit: int = Query(100, le=500),
+    limit: int = Query(100, le=1000),
     offset: int = Query(0, ge=0),
     conn: asyncpg.Connection = Depends(get_conn),
 ):

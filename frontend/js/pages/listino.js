@@ -7,7 +7,7 @@ const EXPORT_BTN = '<button class="btn btn-outline-success btn-sm me-1" data-act
 export async function renderListino(container) {
   const [servizi, fornitori, prodotti, categorie, categorieServizio, conversioni, vettori] = await Promise.all([
     api.listinoServizi.list('?limit=1000'),
-    api.fornitori.list('?limit=500'),
+    api.fornitori.list('?limit=1000'),
     api.prodotti.list('?limit=3000'),
     api.categorie.list(),
     api.categorieServizio.list(),

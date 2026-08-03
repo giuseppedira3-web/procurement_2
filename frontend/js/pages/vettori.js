@@ -1,6 +1,8 @@
 import { api } from '../api.js';
-import { fmt, toast, setHeaderActions, setTitle } from '../utils.js';
+import { fmt, toast, setHeaderActions, setTitle, countLabel } from '../utils.js';
 import { renderTable, showFormModal, deleteWithConfirm } from '../components.js';
+
+const LIST_LIMIT = 1000;
 
 const COLUMNS = [
   { key: 'ragione_sociale', label: 'Ragione Sociale', fmt: v => `<strong>${v}</strong>` },
@@ -20,13 +22,13 @@ const FIELDS = [
 
 export async function renderVettori(container) {
   setTitle('Vettori');
-  const rows = await api.vettori.list();
+  const rows = await api.vettori.list(`?limit=${LIST_LIMIT}`);
 
   setHeaderActions(`<button class="btn btn-primary btn-sm" id="btn-new"><i class="bi bi-plus-lg me-1"></i>Nuovo Vettore</button>`);
 
   const wrap = document.createElement('div');
   wrap.className = 'table-card';
-  wrap.innerHTML = `<div class="table-toolbar"><span class="text-muted small">${rows.length} vettori</span></div><div id="tbl-body"></div>`;
+  wrap.innerHTML = `<div class="table-toolbar">${countLabel(rows.length, LIST_LIMIT, 'vettori')}</div><div id="tbl-body"></div>`;
   container.innerHTML = '';
   container.appendChild(wrap);
 

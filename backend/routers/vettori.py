@@ -9,7 +9,7 @@ router = APIRouter(prefix="/vettori", tags=["Vettori"])
 @router.get("/", response_model=list[VettoreResponse])
 async def list_vettori(
     attivo: bool | None = None,
-    limit: int = Query(200, le=500),
+    limit: int = Query(200, le=1000),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     filters, params = [], []

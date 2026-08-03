@@ -1,6 +1,6 @@
 import { api } from '../api.js';
-import { fmt, toast, setHeaderActions, setTitle, qualitaBadge, QUALITA_ACCIAIO } from '../utils.js';
-import { renderTable, showFormModal, deleteWithConfirm } from '../components.js';
+import { fmt, toast, setHeaderActions, setTitle, qualitaBadge, QUALITA_ACCIAIO, countLabel } from '../utils.js';
+import { renderTable, showFormModal, deleteWithConfirm, attachAutocomplete } from '../components.js';
 
 
 function fmtSconto(v) {
@@ -24,6 +24,7 @@ const LIST_COLS = [
 
 let _righeViewActive = false;
 
+const LIST_LIMIT = 1000;
 const STATI_ORDINE = ['confermato','parzialmente_consegnato','completato','annullato'];
 const INCOTERM = ['EXW','FOB','CIF','Reso','Partenza'];
 
@@ -48,7 +49,7 @@ export async function renderOrdini(container, id) {
   if (id) return renderDetail(container, id);
 
   const [rows, fornitori, vettori] = await Promise.all([
-    api.ordini.list('?limit=500'), api.fornitori.list('?limit=500'), api.vettori.list(),
+    api.ordini.list(`?limit=${LIST_LIMIT}`), api.fornitori.list(`?limit=${LIST_LIMIT}`), api.vettori.list(),
   ]);
   // fornMap da tutti i fornitori (per la visualizzazione), ma gli ordini di
   // acciaio si fanno solo alle acciaierie → il dropdown propone solo quelle.
@@ -133,7 +134,7 @@ export async function renderOrdini(container, id) {
   wrap.className = 'table-card';
   wrap.innerHTML = `
     <div class="table-toolbar">
-      <span class="text-muted small">${rows.length} ordini</span>
+      ${countLabel(rows.length, LIST_LIMIT, 'ordini')}
     </div>
     <div id="tbl-body"></div>`;
   container.innerHTML = '';
@@ -254,9 +255,9 @@ async function renderDetail(container, id) {
     api.prodotti.list('?limit=10000'), api.conversioni.list('?limit=10000'),
     api.categorie.list(), api.vettori.list(),
     api.magazzini.listByFornitore(ord.id_fornitore),
-    api.fornitori.list('?tipo=zincheria&limit=500'),
+    api.fornitori.list(`?tipo=zincheria&limit=${LIST_LIMIT}`),
     ord.zincatura && ord.id_zincheria
-      ? api.listinoServizi.list(`?id_fornitore=${ord.id_zincheria}&limit=500`)
+      ? api.listinoServizi.list(`?id_fornitore=${ord.id_zincheria}&limit=${LIST_LIMIT}`)
       : Promise.resolve([]),
   ]);
   const catById = Object.fromEntries(categorie.map(c => [c.id, c]));
@@ -578,6 +579,15 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
         }
       }
 
+      // Suggerisce i codici che contengono il testo digitato (non solo quelli
+      // che iniziano così): con un catalogo ampio è scomodo ricordare il
+      // codice esatto dall'inizio.
+      attachAutocomplete(inputCodice, {
+        items: prodotti,
+        getText: p => p.codice_prodotto,
+        renderItem: p => `<div class="fw-semibold">${p.codice_prodotto}</div><div class="small text-muted">${p.descrizione}</div>`,
+        onSelect: p => { inputCodice.value = p.codice_prodotto; applyProdotto(p.codice_prodotto, false); },
+      });
       inputCodice.addEventListener('blur',    e => applyProdotto(e.target.value, false));
       inputCodice.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyProdotto(e.target.value, false); } });
       inputQty.addEventListener('input', recalcKg);

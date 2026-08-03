@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { fmt, toast, setHeaderActions, setTitle } from '../utils.js';
+import { fmt, toast, setHeaderActions, setTitle, countLabel } from '../utils.js';
 import { renderTable, showFormModal, deleteWithConfirm } from '../components.js';
 
 const LIST_COLS = [
@@ -20,11 +20,12 @@ const LIST_COLS = [
 
 const STATI_FT  = ['ricevuta','in_verifica','verificata','approvata','pagata','contestata','annullata'];
 const TIPI_SDI  = ['TD01','TD04','TD05','TD16','TD17','TD18','TD19'];
+const LIST_LIMIT = 1000;
 
 export async function renderFatture(container, id) {
   if (id) return renderDetail(container, id);
 
-  const [rows, fornitori] = await Promise.all([api.fatture.list(), api.fornitori.list()]);
+  const [rows, fornitori] = await Promise.all([api.fatture.list(`?limit=${LIST_LIMIT}`), api.fornitori.list()]);
   const fornMap = Object.fromEntries(fornitori.map(f => [f.id, f.ragione_sociale]));
   rows.forEach(r => r._fornitore = fornMap[r.id_fornitore] || '—');
 
@@ -34,7 +35,7 @@ export async function renderFatture(container, id) {
   wrap.className = 'table-card';
   wrap.innerHTML = `
     <div class="table-toolbar">
-      <span class="text-muted small">${rows.length} fatture</span>
+      ${countLabel(rows.length, LIST_LIMIT, 'fatture')}
     </div>
     <div id="tbl-body"></div>`;
   container.innerHTML = '';

@@ -15,7 +15,7 @@ async def list_listino(
     tipo: str | None = None,
     attivo: bool | None = None,
     data_riferimento: date | None = Query(None, description="Filtra voci valide a questa data"),
-    limit: int = Query(100, le=500),
+    limit: int = Query(100, le=1000),
     offset: int = Query(0, ge=0),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
