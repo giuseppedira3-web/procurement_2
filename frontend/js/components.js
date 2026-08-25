@@ -217,7 +217,7 @@ function chartBarPath(x, y, w, h, r) {
  * data: { [xKey]: { [seriesKey]: number } }
  * formatValue: (n) => string, usata su assi/tooltip/tabella
  */
-export function renderGroupedBarChart(container, { series, xValues, data, formatValue = String, emptyMsg = 'Nessun dato disponibile' }) {
+export function renderGroupedBarChart(container, { series, xValues, data, formatValue = String, emptyMsg = 'Nessun dato disponibile', showValues = false }) {
   const hasData = xValues.some(x => series.some(s => (data[x.key]?.[s.key] || 0) > 0));
   let view = 'chart';
 
@@ -250,8 +250,11 @@ export function renderGroupedBarChart(container, { series, xValues, data, format
         const by = marginT + plotH - barH;
         const path = chartBarPath(bx, by, barW, barH, 4);
         const title = `${s.label} — ${x.label}: ${formatValue(val)}`;
+        const valueLabel = (showValues && val > 0)
+          ? `<text x="${bx + barW / 2}" y="${Math.max(by - 4, marginT + 8)}" text-anchor="middle" font-size="9" fill="${CHART_INK.muted}">${formatValue(val)}</text>`
+          : '';
         return path ? `<path d="${path}" fill="${s.color}" tabindex="0" role="img" aria-label="${title}"
-          class="chart-bar" data-title="${title}"></path>` : '';
+          class="chart-bar" data-title="${title}"></path>${valueLabel}` : '';
       }).join('');
       return groupBars + label;
     }).join('');

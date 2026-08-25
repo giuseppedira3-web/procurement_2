@@ -23,6 +23,20 @@ function withDitta(path) {
   return path + (path.includes('?') ? '&' : '?') + 'ditta=' + getDitta();
 }
 
+// Listino Tubolare attivo: condiviso tra la pagina Listino Prezzi e la
+// compilazione ordini, così il prezzo proposto in un ordine è sempre quello
+// del listino attualmente selezionato in intestazione.
+const LISTINO_TUBOLARE_KEY = 'tubolare_listino_attivo_id';
+
+export function getListinoTubolareId() {
+  const v = sessionStorage.getItem(LISTINO_TUBOLARE_KEY);
+  return v ? Number(v) : null;
+}
+
+export function setListinoTubolareId(id) {
+  sessionStorage.setItem(LISTINO_TUBOLARE_KEY, String(id));
+}
+
 // Tutte le chiamate API vanno a /api/* che FastAPI gestisce
 async function req(method, path, body = null) {
   const opts = { method, headers: {} };
@@ -77,8 +91,10 @@ export const api = {
   categorie:   { list: (p='') => req('GET', `/categorie/${p}`), get: id => req('GET', `/categorie/${id}`), create: b => req('POST', '/categorie/', b), update: (id,b) => req('PATCH', `/categorie/${id}`, b), del: id => req('DELETE', `/categorie/${id}`) },
   prodotti:    { list: (p='') => req('GET', `/prodotti/${p}`), get: id => req('GET', `/prodotti/${id}`), create: b => req('POST', '/prodotti/', b), update: (id,b) => req('PATCH', `/prodotti/${id}`, b), del: id => req('DELETE', `/prodotti/${id}`),
                  importFile: file => upload('/prodotti/import', file), templateUrl: '/prodotti/import/template', exportUrl: '/prodotti/export',
-                 importPrezzoRiferimento: (idCategoria, file, campoPrezzoImport = 'prezzo_riferimento') => upload(`/prodotti/import-prezzo-riferimento?id_categoria=${idCategoria}&campo_prezzo=${campoPrezzoImport}`, file),
+                 importPrezzoRiferimento: (idCategoria, file, campoPrezzoImport = 'prezzo_riferimento', idListino = null) => upload(`/prodotti/import-prezzo-riferimento?id_categoria=${idCategoria}&campo_prezzo=${campoPrezzoImport}${idListino != null ? `&id_listino=${idListino}` : ''}`, file),
                  prezzoRiferimentoTemplateUrl: '/prodotti/import-prezzo-riferimento/template' },
+  listiniTubolare: { list: (p='') => req('GET', `/listini-tubolare/${p}`), create: b => req('POST', '/listini-tubolare/', b),
+                 prezzi: id => req('GET', `/listini-tubolare/${id}/prezzi/`), setPrezzo: (id,b) => req('POST', `/listini-tubolare/${id}/prezzi/`, b) },
   conversioni: { list: (p='') => req('GET', `/conversioni-peso/${p}`), get: id => req('GET', `/conversioni-peso/${id}`), create: b => req('POST', '/conversioni-peso/', b), update: (id,b) => req('PATCH', `/conversioni-peso/${id}`, b), del: id => req('DELETE', `/conversioni-peso/${id}`),
                  importFile: file => upload('/conversioni-peso/import', file), templateUrl: '/conversioni-peso/import/template', exportUrl: '/conversioni-peso/export' },
   listino:     { list: (p='') => req('GET', `/listino/${p}`), get: id => req('GET', `/listino/${id}`), create: b => req('POST', '/listino/', b), update: (id,b) => req('PATCH', `/listino/${id}`, b), del: id => req('DELETE', `/listino/${id}`) },
@@ -99,5 +115,7 @@ export const api = {
     esposizione:       () => req('GET', withDitta('/dashboard/esposizione-fornitori')),
     totaliOrdini:      () => req('GET', withDitta('/dashboard/totali-ordini')),
     ordiniCategoriaMensile: () => req('GET', withDitta('/dashboard/ordini-categoria-mensile')),
+    quantitaPrezzoMensile: ({ categoria = 'MERCANTILE', mesi = 12, ditta } = {}) =>
+      req('GET', `/dashboard/quantita-prezzo-mensile?categoria=${categoria}&mesi=${mesi}${ditta ? '&ditta=' + ditta : ''}`),
   },
 };

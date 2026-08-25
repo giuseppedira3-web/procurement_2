@@ -4,6 +4,7 @@ export function fmt(v, type = 'text') {
   if (type === 'datetime') return new Date(v).toLocaleString('it-IT');
   if (type === 'currency') return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2 }).format(v) + ' €';
   if (type === 'peso_t') return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 }).format(v / 1000) + ' t';
+  if (type === 'eur_kg') return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(v) + ' €/kg';
   if (type === 'number') return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 4 }).format(v);
   if (type === 'bool') return v ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle text-secondary"></i>';
   if (type === 'stato') return `<span class="badge badge-${v}">${v.replace(/_/g,' ')}</span>`;
