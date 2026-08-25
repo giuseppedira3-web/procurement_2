@@ -120,6 +120,9 @@ async def list_all_righe(
             r.id_prodotto, r.descrizione_libera,
             r.quantita_ordinata, r.unita_misura, r.quantita_kg,
             r.prezzo_unitario, r.importo_riga,
+            r.sconto_percentuale, r.sconto_2_percentuale, r.sconto_3_percentuale, r.sconto_4_percentuale,
+            r.prezzo_zincatura,
+            t.prezzo_trasporto_kg,
             r.quantita_consegnata, r.quantita_fatturata, r.stato_riga,
             r.qualita_acciaio, r.lunghezza_mm,
             r.data_consegna_prevista,
@@ -130,6 +133,7 @@ async def list_all_righe(
         FROM ordini_righe r
         JOIN ordini o ON o.id = r.id_ordine
         LEFT JOIN prodotti p ON p.id = r.id_prodotto
+        LEFT JOIN v_trasporto_righe_ordine t ON t.id_riga_ordine = r.id
         {where}
         ORDER BY o.anno DESC, o.numero_progressivo, r.numero_riga
     """, *params)

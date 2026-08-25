@@ -1,11 +1,11 @@
-import { api } from '../api.js';
+import { api, getListinoTubolareId, setListinoTubolareId } from '../api.js';
 import { fmt, toast, downloadCsv } from '../utils.js';
 import { renderTable, showFormModal, showImportModal, deleteWithConfirm } from '../components.js';
 
 const EXPORT_BTN = '<button class="btn btn-outline-success btn-sm me-1" data-action="export" title="Scarica i dati mostrati in CSV"><i class="bi bi-file-earmark-arrow-down me-1"></i>Scarica</button>';
 
 export async function renderListino(container) {
-  const [servizi, fornitori, prodotti, categorie, categorieServizio, conversioni, vettori] = await Promise.all([
+  const [servizi, fornitori, prodotti, categorie, categorieServizio, conversioni, vettori, listiniTubolare] = await Promise.all([
     api.listinoServizi.list('?limit=1000'),
     api.fornitori.list('?limit=1000'),
     api.prodotti.list('?limit=3000'),
@@ -13,6 +13,7 @@ export async function renderListino(container) {
     api.categorieServizio.list(),
     api.conversioni.list('?limit=3000'),
     api.vettori.list(),
+    api.listiniTubolare.list(),
   ]);
 
   const fornMap = Object.fromEntries(fornitori.map(f => [f.id, f.ragione_sociale]));
@@ -33,7 +34,7 @@ export async function renderListino(container) {
       <div class="tab-pane fade" id="ls-tab"></div>
     </div>`;
 
-  renderListinoProdotti(container.querySelector('#lp-tab'), { prodotti, categorie, conversioni });
+  renderListinoProdotti(container.querySelector('#lp-tab'), { prodotti, categorie, conversioni, listiniTubolare });
   renderListinoServizi(container.querySelector('#ls-tab'), { servizi, fornitori, zincherie, vettori, categorie, categorieServizio, fornMap, catMap, vetMap });
 }
 
@@ -44,7 +45,7 @@ export async function renderListino(container) {
 // il tubolare, base per mercantile/travi) sono persistiti su categorie_prodotto.
 // ---------------------------------------------------------------------------
 
-function renderListinoProdotti(container, { prodotti, categorie, conversioni }) {
+function renderListinoProdotti(container, { prodotti, categorie, conversioni, listiniTubolare }) {
   if (!categorie.length) {
     container.innerHTML = '<div class="text-center py-5 text-muted">Nessuna categoria prodotto definita</div>';
     return;
@@ -61,7 +62,7 @@ function renderListinoProdotti(container, { prodotti, categorie, conversioni }) 
   categorie.forEach(cat => {
     const pane = container.querySelector(`#lp-cat-${cat.id}`);
     if (cat.codice === 'TUBOLARE') {
-      renderTubolare(pane, { cat, prodotti, conversioni });
+      renderTubolare(pane, { cat, prodotti, conversioni, listini: listiniTubolare });
     } else if (cat.codice === 'TRAVI') {
       renderTravi(pane, { cat, prodotti });
     } else if (['MERCANTILE', 'RETI', 'GRIGLIATI'].includes(cat.codice)) {
@@ -80,7 +81,7 @@ const QUALITA_TUBOLARE = [
   { key: 'prezzo_s355j2h',    label: 'S355J2H',  campoPrezzoImport: 'prezzo_s355j2h' },
 ];
 
-function renderTubolare(container, { cat, prodotti, conversioni }) {
+async function renderTubolare(container, { cat, prodotti, conversioni, listini }) {
   const pesoMap = {};
   conversioni.forEach(c => {
     if (c.id_prodotto && c.da_unita === cat.unita_misura_base) pesoMap[c.id_prodotto] = Number(c.fattore_conversione);
@@ -89,11 +90,18 @@ function renderTubolare(container, { cat, prodotti, conversioni }) {
   const prodottiCat = prodotti.filter(p => p.id_categoria === cat.id);
   let qualitaAttiva = QUALITA_TUBOLARE[0];
 
+  let listinoAttivo = listini.find(l => l.id === getListinoTubolareId()) || listini[0] || null;
+  let prezzoMap = {}; // `${id_prodotto}|${qualita}` -> prezzo
+
   const wrap = document.createElement('div');
   wrap.className = 'table-card';
   wrap.innerHTML = `
     <div class="table-toolbar flex-wrap gap-2">
-      <label class="small text-muted mb-0 me-1">Sconto</label>
+      <label class="small text-muted mb-0 me-1">Listino</label>
+      <select class="form-select form-select-sm" style="max-width:180px" data-f="listino"></select>
+      <button class="btn btn-outline-secondary btn-sm" data-action="new-listino" title="Crea un nuovo listino vuoto">
+        <i class="bi bi-plus-lg"></i></button>
+      <label class="small text-muted mb-0 ms-3 me-1">Sconto</label>
       <div class="input-group input-group-sm" style="max-width:130px">
         <input type="number" step="0.01" class="form-control" data-f="sconto" value="${cat.parametro_prezzo != null ? Number(cat.parametro_prezzo) : ''}">
         <span class="input-group-text">%</span>
@@ -133,14 +141,29 @@ function renderTubolare(container, { cat, prodotti, conversioni }) {
     { key: '_scontatoTon',    label: 'Scontato €/ton', fmt: v => v != null ? fmt(v, 'currency') : '<span class="text-muted">—</span>' },
   ];
 
+  const prezzoKey = (idProdotto, qualita) => `${idProdotto}|${qualita}`;
+
+  function renderListinoSelect() {
+    const sel = wrap.querySelector('[data-f="listino"]');
+    sel.innerHTML = listini.map(l => `<option value="${l.id}" ${listinoAttivo && l.id === listinoAttivo.id ? 'selected' : ''}>${l.nome}</option>`).join('');
+  }
+
+  async function loadPrezzi() {
+    if (!listinoAttivo) { prezzoMap = {}; return; }
+    const rows = await api.listiniTubolare.prezzi(listinoAttivo.id);
+    prezzoMap = {};
+    rows.forEach(r => { prezzoMap[prezzoKey(r.id_prodotto, r.qualita)] = r.prezzo; });
+  }
+
   function buildRows() {
     const sconto     = Number(cat.parametro_prezzo) || 0;
     const tolleranza = Number(cat.tolleranza_peso)  || 0;
     const campoPrezzo = qualitaAttiva.key;
     return prodottiCat
-      .filter(p => p[campoPrezzo] != null)
-      .map(p => {
-        const listino    = Number(p[campoPrezzo]);
+      .map(p => ({ p, prezzo: prezzoMap[prezzoKey(p.id, campoPrezzo)] }))
+      .filter(({ prezzo }) => prezzo != null)
+      .map(({ p, prezzo }) => {
+        const listino    = Number(prezzo);
         const peso       = pesoMap[p.id] ?? null;
         const pesoCorretto = peso != null ? peso * (1 + tolleranza / 100) : null;
         const scontato   = listino * (1 + sconto / 100);
@@ -161,9 +184,38 @@ function renderTubolare(container, { cat, prodotti, conversioni }) {
     wrap.querySelector('[data-count]').textContent = `${rows.length} prodotti`;
     renderTable(wrap.querySelector('.tbl-body'), {
       columns, rows, actions: { onEdit: openEdit },
-      emptyMsg: `Nessun prezzo ${qualitaAttiva.label} registrato`,
+      emptyMsg: listinoAttivo ? `Nessun prezzo ${qualitaAttiva.label} registrato per ${listinoAttivo.nome}` : 'Nessun listino disponibile',
     });
   }
+
+  async function refreshAll() {
+    await loadPrezzi();
+    refresh();
+  }
+
+  // Cambio listino
+  renderListinoSelect();
+  wrap.querySelector('[data-f="listino"]').addEventListener('change', async e => {
+    const id = Number(e.target.value);
+    listinoAttivo = listini.find(l => l.id === id) || null;
+    setListinoTubolareId(id);
+    await refreshAll();
+  });
+
+  wrap.querySelector('[data-action="new-listino"]').onclick = () => showFormModal({
+    title: 'Nuovo Listino Tubolare',
+    fields: [{ name: 'nome', label: 'Nome Listino', type: 'text', required: true, col: 12, placeholder: 'es. Listino 2/2026' }],
+    values: {},
+    onSave: async data => {
+      const nuovo = await api.listiniTubolare.create({ nome: data.nome });
+      listini.unshift(nuovo);
+      listinoAttivo = nuovo;
+      setListinoTubolareId(nuovo.id);
+      toast('Listino creato');
+      renderListinoSelect();
+      await refreshAll();
+    },
+  });
 
   // Cambio qualità
   QUALITA_TUBOLARE.forEach((q, i) => {
@@ -197,17 +249,17 @@ function renderTubolare(container, { cat, prodotti, conversioni }) {
   });
 
   wrap.querySelector('[data-action="export"]').onclick = () =>
-    downloadCsv(`listino_TUBOLARE_${qualitaAttiva.label}.csv`, columns, buildRows());
+    downloadCsv(`listino_TUBOLARE_${qualitaAttiva.label}_${(listinoAttivo?.nome || '').replace(/\s+/g, '_').replace(/\//g, '-')}.csv`, columns, buildRows());
 
   wrap.querySelector('[data-action="import"]').onclick = () => showImportModal({
-    title: `Importa Listino — TUBOLARE ${qualitaAttiva.label}`,
+    title: `Importa Listino — TUBOLARE ${qualitaAttiva.label} — ${listinoAttivo?.nome || ''}`,
     templateUrl: api.prodotti.prezzoRiferimentoTemplateUrl,
-    importFn: file => api.prodotti.importPrezzoRiferimento(cat.id, file, qualitaAttiva.campoPrezzoImport),
+    importFn: file => api.prodotti.importPrezzoRiferimento(cat.id, file, qualitaAttiva.campoPrezzoImport, listinoAttivo?.id),
     onSuccess: () => location.reload(),
     helpHtml: `<p class="small text-muted">
       Una riga per prodotto. Campi: <code>codice_prodotto</code>, <code>descrizione</code>
       (obbligatoria solo per prodotti nuovi — solo per S235JRH), <code>prezzo_riferimento</code>
-      — prezzo di listino in €/${cat.unita_misura_base}.<br>
+      — prezzo di listino in €/${cat.unita_misura_base}, aggiunto al listino <strong>${listinoAttivo?.nome || ''}</strong> selezionato in intestazione.<br>
       ${qualitaAttiva.key !== 'prezzo_riferimento' ? '<strong>Nota:</strong> per questa qualità il prodotto deve già esistere in anagrafica.' : ''}
     </p>`,
   });
@@ -216,9 +268,11 @@ function renderTubolare(container, { cat, prodotti, conversioni }) {
   function getFields() {
     const isDefault = qualitaAttiva.key === 'prezzo_riferimento';
     return [
-      { name: 'codice_prodotto', label: 'Codice Prodotto', type: isDefault ? 'text' : 'text', required: true, col: 6 },
+      { name: 'codice_prodotto', label: 'Codice Prodotto', type: 'text', required: true, col: 6 },
       { name: 'descrizione',     label: 'Descrizione',     type: 'text', required: isDefault, col: 6 },
       { name: qualitaAttiva.key, label: `Prezzo Listino ${qualitaAttiva.label} (€/${cat.unita_misura_base})`, type: 'decimal', required: true, col: 6, step: '0.0001' },
+      { name: 'id_listino',      label: 'Listino',         type: 'select', required: true, col: 6,
+        options: listini.map(l => ({ value: l.id, label: l.nome })), value: listinoAttivo?.id },
     ];
   }
 
@@ -227,13 +281,18 @@ function renderTubolare(container, { cat, prodotti, conversioni }) {
     showFormModal({
       title: `Nuovo Prodotto — TUBOLARE ${qualitaAttiva.label}`, fields: getFields(), values: {},
       onSave: async data => {
+        const idListinoScelto = Number(data.id_listino);
+        let idProdotto;
         if (isDefault) {
-          await api.prodotti.create({ ...data, id_categoria: cat.id, unita_misura_acquisto: cat.unita_misura_base });
+          const nuovo = await api.prodotti.create({ codice_prodotto: data.codice_prodotto, descrizione: data.descrizione, id_categoria: cat.id, unita_misura_acquisto: cat.unita_misura_base });
+          idProdotto = nuovo.id;
         } else {
           const existing = prodottiCat.find(p => p.codice_prodotto === data.codice_prodotto);
           if (!existing) { toast('Prodotto non trovato in anagrafica TUBOLARE', 'danger'); return; }
-          await api.prodotti.update(existing.id, { [qualitaAttiva.key]: data[qualitaAttiva.key] });
+          idProdotto = existing.id;
         }
+        await api.listiniTubolare.setPrezzo(idListinoScelto, { id_prodotto: idProdotto, qualita: qualitaAttiva.key, prezzo: data[qualitaAttiva.key] });
+        setListinoTubolareId(idListinoScelto);
         toast('Prodotto aggiornato'); location.reload();
       },
     });
@@ -241,20 +300,20 @@ function renderTubolare(container, { cat, prodotti, conversioni }) {
 
   function openEdit(id, row) {
     const isDefault = qualitaAttiva.key === 'prezzo_riferimento';
-    const editFields = getFields().map(f => f.name === 'codice_prodotto' ? { ...f, type: 'hidden' } : f);
+    const editFields = getFields().map(f => (f.name === 'codice_prodotto' || f.name === 'id_listino') ? { ...f, type: 'hidden' } : f);
     showFormModal({
-      title: `Modifica — ${row.codice_prodotto} (${qualitaAttiva.label})`,
+      title: `Modifica — ${row.codice_prodotto} (${qualitaAttiva.label}) — ${listinoAttivo?.nome || ''}`,
       fields: editFields, values: row,
       onSave: async data => {
-        const patch = { [qualitaAttiva.key]: data[qualitaAttiva.key] };
-        if (isDefault) patch.descrizione = data.descrizione;
-        await api.prodotti.update(id, patch);
+        if (isDefault) await api.prodotti.update(id, { descrizione: data.descrizione });
+        await api.listiniTubolare.setPrezzo(listinoAttivo.id, { id_prodotto: id, qualita: qualitaAttiva.key, prezzo: data[qualitaAttiva.key] });
         toast('Prodotto aggiornato'); location.reload();
       },
     });
   }
 
-  refresh();
+  wrap.querySelector('.tbl-body').innerHTML = '<div class="text-center py-5 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Caricamento prezzi...</div>';
+  await refreshAll();
 }
 
 // --- TRAVI: extra per profilo + 6 basi per categoria (Cat 0 … Cat 5) --------

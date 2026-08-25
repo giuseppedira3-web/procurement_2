@@ -1,4 +1,4 @@
-import { api } from '../api.js';
+import { api, getListinoTubolareId } from '../api.js';
 import { fmt, toast, setHeaderActions, setTitle, qualitaBadge, QUALITA_ACCIAIO, countLabel } from '../utils.js';
 import { renderTable, showFormModal, deleteWithConfirm, attachAutocomplete } from '../components.js';
 
@@ -178,6 +178,13 @@ async function renderRigheView(container, fornitori, fornMap) {
     const pct     = Number(r.quantita_ordinata) > 0
       ? Math.round(Number(r.quantita_consegnata) / Number(r.quantita_ordinata) * 100) : 0;
     const barColor = pct >= 100 ? 'bg-success' : pct > 0 ? 'bg-warning' : 'bg-secondary';
+    const s1 = Number(r.sconto_percentuale   || 0);
+    const s2 = Number(r.sconto_2_percentuale || 0);
+    const s3 = Number(r.sconto_3_percentuale || 0);
+    const s4 = Number(r.sconto_4_percentuale || 0);
+    const zinc  = r.prezzo_zincatura     != null ? Number(r.prezzo_zincatura)     : 0;
+    const trasp = r.prezzo_trasporto_kg  != null ? Number(r.prezzo_trasporto_kg)  : 0;
+    const base  = Number(r.prezzo_unitario) * (1+s1/100) * (1+s2/100) * (1+s3/100) * (1+s4/100);
     return {
       ...r,
       _fornitore: fornMap[r.id_fornitore] || '—',
@@ -189,6 +196,8 @@ async function renderRigheView(container, fornitori, fornMap) {
       _avanz: `<div class="progress" style="height:6px;min-width:60px" title="${pct}%">
                  <div class="progress-bar ${barColor}" style="width:${Math.min(pct,100)}%"></div>
                </div>`,
+      _base:  base,
+      _netto: base + zinc + trasp,
     };
   });
 
@@ -204,6 +213,8 @@ async function renderRigheView(container, fornitori, fornMap) {
     { key: 'lunghezza_mm',          label: 'Lung. mm', class: 'text-end', fmt: v => v ? Number(v).toLocaleString('it-IT') : '<span class="text-muted">—</span>' },
     { key: 'quantita_ordinata',     label: 'Ord.',     class: 'text-end', fmt: v => fmt(v, 'number') },
     { key: 'unita_misura',          label: 'U.M.',     fmt: v => `<code>${v}</code>` },
+    { key: '_base',                 label: 'P.BASE',   class: 'text-end', fmt: v => fmt(v, 'number') },
+    { key: '_netto',                label: 'P.NETTO',  class: 'text-end', fmt: v => `<strong>${fmt(v, 'number')}</strong>` },
     { key: 'quantita_consegnata',   label: 'Arr.',     class: 'text-end',
       fmt: v => `<span class="text-info">${fmt(v, 'number')}</span>` },
     { key: '_residuo',              label: 'Residuo',  class: 'text-end',
@@ -251,7 +262,7 @@ async function renderRigheView(container, fornitori, fornMap) {
 // ---------------------------------------------------------------------------
 async function renderDetail(container, id) {
   const ord = await api.ordini.get(id);
-  const [prodotti, conversioni, categorie, vettori, magFornitore, zincherie, zincVoci] = await Promise.all([
+  const [prodotti, conversioni, categorie, vettori, magFornitore, zincherie, zincVoci, listiniTubolare] = await Promise.all([
     api.prodotti.list('?limit=10000'), api.conversioni.list('?limit=10000'),
     api.categorie.list(), api.vettori.list(),
     api.magazzini.listByFornitore(ord.id_fornitore),
@@ -259,8 +270,18 @@ async function renderDetail(container, id) {
     ord.zincatura && ord.id_zincheria
       ? api.listinoServizi.list(`?id_fornitore=${ord.id_zincheria}&limit=${LIST_LIMIT}`)
       : Promise.resolve([]),
+    api.listiniTubolare.list(),
   ]);
   const catById = Object.fromEntries(categorie.map(c => [c.id, c]));
+
+  // Prezzo TUBOLARE: sempre quello del listino attualmente selezionato nella
+  // pagina Listino Prezzi (stesso sessionStorage), non una colonna fissa sul
+  // prodotto — così un ordine riflette il listino in vigore al momento.
+  const listinoTubolareAttivo = listiniTubolare.find(l => l.id === getListinoTubolareId()) || listiniTubolare[0] || null;
+  const prezziTubolareRows = listinoTubolareAttivo ? await api.listiniTubolare.prezzi(listinoTubolareAttivo.id) : [];
+  const prezzoTubolareMap = Object.fromEntries(
+    prezziTubolareRows.filter(r => r.qualita === 'prezzo_riferimento').map(r => [r.id_prodotto, r.prezzo])
+  );
 
   setTitle(`Ordine: ${ord.codice_ordine}`);
   setHeaderActions(`
@@ -334,7 +355,7 @@ async function renderDetail(container, id) {
     columns: cols,
     rows: detailRows,
     actions: {
-      onEdit:   (rid, row) => openRigaModal(rid, row, id, ord, prodotti, conversioni, catById, container, zincVoci),
+      onEdit:   (rid, row) => openRigaModal(rid, row, id, ord, prodotti, conversioni, catById, container, zincVoci, listinoTubolareAttivo, prezzoTubolareMap),
       onDelete: (rid)      => deleteWithConfirm(`riga #${rid}`, () => api.ordini.righe.del(id, rid), () => renderDetail(container, id)),
     },
     emptyMsg: 'Nessuna riga',
@@ -368,7 +389,7 @@ async function renderDetail(container, id) {
   };
 
   // Add riga
-  document.getElementById('btn-add-riga').onclick = () => openRigaModal(null, null, id, ord, prodotti, conversioni, catById, container, zincVoci);
+  document.getElementById('btn-add-riga').onclick = () => openRigaModal(null, null, id, ord, prodotti, conversioni, catById, container, zincVoci, listinoTubolareAttivo, prezzoTubolareMap);
 
   // Stato via event delegation — sopravvive ai re-render di sort/filtro
   const STATI_RIGA = ['aperta','parziale','completa','annullata'];
@@ -429,7 +450,7 @@ function zincVoceLabel(v) {
   return `${v.descrizione_voce || 'voce'}${range} — ${prezzo} €/${v.unita_misura_prezzo}`;
 }
 
-function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catById, container, zincVoci = []) {
+function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catById, container, zincVoci = [], listinoTubolareAttivo = null, prezzoTubolareMap = {}) {
   const nextNum = rigaId ? riga.numero_riga : (Math.max(0, ...ord.righe.map(r => r.numero_riga)) + 1);
   const prodByCode = Object.fromEntries(prodotti.map(p => [p.codice_prodotto.toUpperCase(), p]));
   const prodById   = Object.fromEntries(prodotti.map(p => [p.id, p]));
@@ -507,6 +528,19 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
         inputCodice.after(fb);
       }
 
+      // Solo per TUBOLARE: nome del listino da cui è stato ripreso il prezzo,
+      // in grigio chiaro sotto il campo prezzo.
+      function showListinoHint(nomeListino) {
+        body.querySelector('.tubolare-listino-hint')?.remove();
+        if (!nomeListino) return;
+        const hint = document.createElement('div');
+        hint.className = 'tubolare-listino-hint text-muted small mt-1';
+        hint.style.opacity = '0.65';
+        hint.textContent = `da ${nomeListino}`;
+        inputPrezzo.after(hint);
+      }
+      inputPrezzo.addEventListener('input', () => body.querySelector('.tubolare-listino-hint')?.remove());
+
       function recalcKg() {
         if (!currentProd) return;
         const qty = parseFloat(inputQty.value);
@@ -540,6 +574,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
           currentProd = null;
           inputIdProd.value = '';
           showFeedback(null, false);
+          showListinoHint(null);
           setLunghezza(null, isInit);
           return;
         }
@@ -548,6 +583,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
           currentProd = null;
           inputIdProd.value = '';
           showFeedback(`Prodotto "${codice}" non trovato in anagrafica`, false);
+          showListinoHint(null);
           setLunghezza(null, isInit);
           return;
         }
@@ -560,9 +596,18 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
           // Auto-fill U.M. if not yet set
           if (prod.unita_misura_acquisto && !inputUm.value)
             inputUm.value = prod.unita_misura_acquisto;
-          // Auto-fill prezzo: Mercantile/Travi listino in €/ton → convert to €/kg
-          if (prod.prezzo_riferimento) {
-            const cat = catById[prod.id_categoria];
+
+          showListinoHint(null);
+          const cat = catById[prod.id_categoria];
+          if (cat && cat.codice === 'TUBOLARE') {
+            // Prezzo dal listino tubolare attivo (non più dalla colonna fissa sul prodotto)
+            const prezzo = prezzoTubolareMap[prod.id];
+            if (prezzo != null) {
+              inputPrezzo.value = prezzo;
+              showListinoHint(listinoTubolareAttivo?.nome);
+            }
+          } else if (prod.prezzo_riferimento) {
+            // Auto-fill prezzo: Mercantile/Travi listino in €/ton → convert to €/kg
             if (cat && (cat.codice === 'MERCANTILE' || cat.codice === 'TRAVI')) {
               const base = cat.codice === 'TRAVI'
                 ? Number(cat[`base_cat_${prod.categoria_trave}`] ?? 0)

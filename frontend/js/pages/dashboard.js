@@ -51,22 +51,60 @@ export async function renderDashboard(container) {
   container.innerHTML = `
   ${isAdmin ? `
   <div class="row g-3 mb-3">
-    <div class="col-md-6">
+    <div class="col-md-4">
       <div class="stat-card d-flex justify-content-between align-items-start">
         <div>
-          <div class="stat-value text-dark">${fmt(totali.peso_totale_kg, 'peso_t')}</div>
-          <div class="stat-label">Peso totale ordinato</div>
+          <div class="stat-value text-dark">${fmt(totali.peso_ordinato_kg, 'peso_t')}</div>
+          <div class="stat-label">Peso ordinato</div>
         </div>
         <i class="bi bi-box-seam stat-icon text-dark"></i>
       </div>
     </div>
-    <div class="col-md-6">
+    <div class="col-md-4">
       <div class="stat-card d-flex justify-content-between align-items-start">
         <div>
-          <div class="stat-value text-dark">${fmt(totali.importo_totale, 'currency')}</div>
-          <div class="stat-label">Valore totale ordinato</div>
+          <div class="stat-value text-info">${fmt(totali.peso_consegnato_kg, 'peso_t')}</div>
+          <div class="stat-label">Peso consegnato</div>
+        </div>
+        <i class="bi bi-truck stat-icon text-info"></i>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="stat-card d-flex justify-content-between align-items-start">
+        <div>
+          <div class="stat-value text-warning">${fmt(totali.peso_da_ricevere_kg, 'peso_t')}</div>
+          <div class="stat-label">Peso da ricevere</div>
+        </div>
+        <i class="bi bi-hourglass-split stat-icon text-warning"></i>
+      </div>
+    </div>
+  </div>
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">
+      <div class="stat-card d-flex justify-content-between align-items-start">
+        <div>
+          <div class="stat-value text-dark">${fmt(totali.importo_ordinato, 'currency')}</div>
+          <div class="stat-label">Valore ordinato</div>
         </div>
         <i class="bi bi-currency-euro stat-icon text-dark"></i>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="stat-card d-flex justify-content-between align-items-start">
+        <div>
+          <div class="stat-value text-info">${fmt(totali.importo_consegnato, 'currency')}</div>
+          <div class="stat-label">Valore consegnato</div>
+        </div>
+        <i class="bi bi-cash-stack stat-icon text-info"></i>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="stat-card d-flex justify-content-between align-items-start">
+        <div>
+          <div class="stat-value text-warning">${fmt(totali.importo_da_ricevere, 'currency')}</div>
+          <div class="stat-label">Valore da ricevere</div>
+        </div>
+        <i class="bi bi-hourglass-split stat-icon text-warning"></i>
       </div>
     </div>
   </div>` : ''}

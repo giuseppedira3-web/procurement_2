@@ -150,6 +150,34 @@ class ProdottoResponse(ProdottoCreate):
 
 
 # ---------------------------------------------------------------------------
+# LISTINI TUBOLARE
+# ---------------------------------------------------------------------------
+
+QualitaTubolare = Literal["prezzo_riferimento", "prezzo_s275j0h", "prezzo_s355j2h"]
+
+
+class ListinoTubolareCreate(BaseModel):
+    nome: str
+
+
+class ListinoTubolareResponse(ListinoTubolareCreate):
+    id: int
+    created_at: datetime
+
+
+class ListinoTubolarePrezzoUpsert(BaseModel):
+    id_prodotto: int
+    qualita: QualitaTubolare
+    prezzo: Decimal
+
+
+class ListinoTubolarePrezzoResponse(BaseModel):
+    id_prodotto: int
+    qualita: QualitaTubolare
+    prezzo: Decimal
+
+
+# ---------------------------------------------------------------------------
 # CONVERSIONI PESO
 # ---------------------------------------------------------------------------
 

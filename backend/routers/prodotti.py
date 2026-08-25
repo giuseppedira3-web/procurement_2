@@ -184,16 +184,27 @@ async def prezzo_riferimento_import_template():
 async def import_prezzo_riferimento(
     id_categoria: int = Query(...),
     campo_prezzo: str = Query("prezzo_riferimento"),
+    id_listino: int | None = Query(None, description="Obbligatorio per la categoria TUBOLARE"),
     file: UploadFile = File(...),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     """Importazione massiva prezzi di listino per qualità.
-    campo_prezzo: prezzo_riferimento (default=S235JRH) | prezzo_s275j0h | prezzo_s355j2h"""
+    campo_prezzo: prezzo_riferimento (default=S235JRH) | prezzo_s275j0h | prezzo_s355j2h
+    Per la categoria TUBOLARE il prezzo va nel listino indicato da id_listino
+    (tabella listino_tubolare_prezzi); per le altre categorie resta su prodotti."""
     if campo_prezzo not in CAMPI_PREZZO_VALIDI:
         raise HTTPException(400, f"campo_prezzo non valido. Valori ammessi: {', '.join(CAMPI_PREZZO_VALIDI)}")
-    cat = await conn.fetchrow("SELECT id, unita_misura_base FROM categorie_prodotto WHERE id = $1", id_categoria)
+    cat = await conn.fetchrow("SELECT id, codice, unita_misura_base FROM categorie_prodotto WHERE id = $1", id_categoria)
     if not cat:
         raise HTTPException(404, "Categoria non trovata")
+
+    is_tubolare = cat["codice"] == "TUBOLARE"
+    if is_tubolare:
+        if id_listino is None:
+            raise HTTPException(400, "id_listino obbligatorio per la categoria TUBOLARE")
+        listino_row = await conn.fetchrow("SELECT id FROM listini_tubolare WHERE id = $1", id_listino)
+        if not listino_row:
+            raise HTTPException(404, "Listino non trovato")
 
     rows = await read_rows(file)
     inseriti = 0
@@ -215,22 +226,34 @@ async def import_prezzo_riferimento(
         try:
             existing = await conn.fetchrow("SELECT id FROM prodotti WHERE codice_prodotto = $1", codice)
             if existing:
-                await conn.execute(
-                    f"UPDATE prodotti SET {campo_prezzo} = $1, descrizione = COALESCE($2, descrizione) WHERE id = $3",
-                    prezzo, descrizione, existing["id"],
-                )
+                id_prodotto = existing["id"]
+                if descrizione:
+                    await conn.execute("UPDATE prodotti SET descrizione = $1 WHERE id = $2", descrizione, id_prodotto)
             else:
                 if campo_prezzo != "prezzo_riferimento":
                     raise ValueError(f"prodotto '{codice}' non trovato — per qualità aggiuntive il prodotto deve già esistere")
                 if not descrizione:
                     raise ValueError("descrizione obbligatoria per un nuovo prodotto")
+                new_row = await conn.fetchrow(
+                    """
+                    INSERT INTO prodotti (codice_prodotto, descrizione, id_categoria, unita_misura_acquisto)
+                    VALUES ($1, $2, $3, $4) RETURNING id
+                    """,
+                    codice, descrizione, id_categoria, cat["unita_misura_base"],
+                )
+                id_prodotto = new_row["id"]
+
+            if is_tubolare:
                 await conn.execute(
                     """
-                    INSERT INTO prodotti (codice_prodotto, descrizione, id_categoria, unita_misura_acquisto, prezzo_riferimento)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO listino_tubolare_prezzi (id_listino, id_prodotto, qualita, prezzo)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (id_listino, id_prodotto, qualita) DO UPDATE SET prezzo = $4, updated_at = now()
                     """,
-                    codice, descrizione, id_categoria, cat["unita_misura_base"], prezzo,
+                    id_listino, id_prodotto, campo_prezzo, prezzo,
                 )
+            else:
+                await conn.execute(f"UPDATE prodotti SET {campo_prezzo} = $1 WHERE id = $2", prezzo, id_prodotto)
             inseriti += 1
         except ValueError as e:
             errori.append(BulkImportError(riga=i, errore=str(e)))
