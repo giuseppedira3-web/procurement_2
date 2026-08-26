@@ -9,7 +9,7 @@
 --   MERCANTILE / TRAVI:  extra di lavorazione (€/kg), invariato da anni
 -- -----------------------------------------------------------------------------
 ALTER TABLE prodotti
-    ADD COLUMN prezzo_riferimento NUMERIC(14,6);
+    ADD COLUMN IF NOT EXISTS prezzo_riferimento NUMERIC(14,6);
 
 -- -----------------------------------------------------------------------------
 -- categorie_prodotto.parametro_prezzo — valore unico di categoria, persistito
@@ -17,7 +17,7 @@ ALTER TABLE prodotti
 --   MERCANTILE / TRAVI:  base corrente di mercato (€/kg), si somma all'extra
 -- -----------------------------------------------------------------------------
 ALTER TABLE categorie_prodotto
-    ADD COLUMN parametro_prezzo NUMERIC(14,6);
+    ADD COLUMN IF NOT EXISTS parametro_prezzo NUMERIC(14,6);
 
 
 -- -----------------------------------------------------------------------------

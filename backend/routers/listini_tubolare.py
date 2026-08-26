@@ -3,6 +3,7 @@ import asyncpg
 from database import get_conn
 from schemas import (
     ListinoTubolareCreate,
+    ListinoTubolareUpdate,
     ListinoTubolareResponse,
     ListinoTubolarePrezzoUpsert,
     ListinoTubolarePrezzoResponse,
@@ -21,11 +22,29 @@ async def list_listini_tubolare(conn: asyncpg.Connection = Depends(get_conn)):
 async def create_listino_tubolare(body: ListinoTubolareCreate, conn: asyncpg.Connection = Depends(get_conn)):
     try:
         row = await conn.fetchrow(
-            "INSERT INTO listini_tubolare (nome) VALUES ($1) RETURNING *",
-            body.nome,
+            "INSERT INTO listini_tubolare (nome, data_inizio, data_fine) VALUES ($1, $2, $3) RETURNING *",
+            body.nome, body.data_inizio, body.data_fine,
         )
     except asyncpg.UniqueViolationError as e:
         raise HTTPException(409, detail=str(e))
+    return dict(row)
+
+
+@router.patch("/{id}", response_model=ListinoTubolareResponse)
+async def update_listino_tubolare(id: int, body: ListinoTubolareUpdate, conn: asyncpg.Connection = Depends(get_conn)):
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(400, "Nessun campo da aggiornare")
+    sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(updates))
+    try:
+        row = await conn.fetchrow(
+            f"UPDATE listini_tubolare SET {sets} WHERE id = $1 RETURNING *",
+            id, *updates.values(),
+        )
+    except asyncpg.UniqueViolationError as e:
+        raise HTTPException(409, detail=str(e))
+    if not row:
+        raise HTTPException(404, "Listino non trovato")
     return dict(row)
 
 

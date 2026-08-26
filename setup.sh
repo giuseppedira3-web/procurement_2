@@ -77,30 +77,61 @@ if [ "$TABLE_COUNT" -eq 0 ]; then
 else
     echo "  Database gia' popolato (${TABLE_COUNT} tabelle), non tocco nulla."
 fi
-# Migrazioni successive al backup: si applicano solo se mancanti
+# Migrazioni successive al backup: si applicano solo se mancanti. I nomi/
+# condizioni qui sotto devono restare allineati ai file in db/ — un
+# disallineamento (successo il 2026-08-xx con la rinumerazione 009-013) fa
+# fallire un'installazione pulita a meta' script per "file not found".
 if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='utenti'" | grep -q 1; then
     echo "  Applico la migrazione 008 (utenti + log attivita)..."
     psql -q "$DATABASE_URL" -f db/008_utenti_log_attivita.sql
 fi
-if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='utenti' AND column_name='password'" | grep -q 1; then
-    echo "  Applico la migrazione 009 (password utenti + tickets)..."
-    psql -q "$DATABASE_URL" -f db/009_password_tickets.sql
-fi
 if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='ordini' AND column_name='zincatura'" | grep -q 1; then
-    echo "  Applico la migrazione 010 (zincatura su ordini)..."
-    psql -q "$DATABASE_URL" -f db/010_zincatura_ordini.sql
+    echo "  Applico la migrazione 009 (zincatura su ordini)..."
+    psql -q "$DATABASE_URL" -f db/009_ordini_zincatura.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='utenti' AND column_name='password'" | grep -q 1; then
+    echo "  Applico la migrazione 010 (password utenti)..."
+    psql -q "$DATABASE_URL" -f db/010_utenti_password.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='tickets'" | grep -q 1; then
+    echo "  Applico la migrazione 011 (tabella tickets)..."
+    psql -q "$DATABASE_URL" -f db/011_tickets.sql
 fi
 if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM utenti WHERE username='giovanni'" | grep -q 1; then
-    echo "  Applico la migrazione 011 (utenti giovanni/giuseppe/enzo)..."
-    psql -q "$DATABASE_URL" -f db/011_utenti_giovanni_giuseppe_enzo.sql
+    echo "  Applico la migrazione 012 (utenti giovanni/giuseppe/enzo)..."
+    psql -q "$DATABASE_URL" -f db/012_utenti_giovanni_giuseppe_enzo.sql
 fi
 if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='ordini' AND column_name='ditta'" | grep -q 1; then
-    echo "  Applico la migrazione 012 (ditta su ordini/ddt/fatture)..."
-    psql -q "$DATABASE_URL" -f db/012_ditta_documenti.sql
+    echo "  Applico la migrazione 013 (ditta su ordini/ddt/fatture)..."
+    psql -q "$DATABASE_URL" -f db/013_ditta_documenti.sql
 fi
 if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='ddt' AND column_name='id_vettore'" | grep -q 1; then
-    echo "  Applico la migrazione 013 (ddt.id_vettore al posto di ddt.vettore)..."
-    psql -q "$DATABASE_URL" -f db/013_ddt_id_vettore.sql
+    echo "  Applico la migrazione 014 (ddt.id_vettore al posto di ddt.vettore)..."
+    psql -q "$DATABASE_URL" -f db/014_ddt_id_vettore.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM categorie_prodotto WHERE codice='COILS'" | grep -q 1; then
+    echo "  Applico la migrazione 015 (categoria COILS)..."
+    psql -q "$DATABASE_URL" -f db/015_categoria_coils.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='ddt' AND column_name='costo_trasporto'" | grep -q 1; then
+    echo "  Applico la migrazione 016 (costo trasporto DDT)..."
+    psql -q "$DATABASE_URL" -f db/016_ddt_costo_trasporto.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='v_stato_ordini' AND column_name='ha_righe_aperte'" | grep -q 1; then
+    echo "  Applico la migrazione 017 (v_stato_ordini.ha_righe_aperte)..."
+    psql -q "$DATABASE_URL" -f db/017_stato_ordini_righe_aperte.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM categorie_prodotto WHERE codice='OMEGA'" | grep -q 1; then
+    echo "  Applico la migrazione 018 (categoria OMEGA)..."
+    psql -q "$DATABASE_URL" -f db/018_categoria_omega.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='listini_tubolare'" | grep -q 1; then
+    echo "  Applico la migrazione 019 (listini tubolare multipli)..."
+    psql -q "$DATABASE_URL" -f db/019_listini_tubolare.sql
+fi
+if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='ordini' AND column_name='cbam'" | grep -q 1; then
+    echo "  Applico la migrazione 020 (CBAM su ordini)..."
+    psql -q "$DATABASE_URL" -f db/020_ordini_cbam.sql
 fi
 
 echo "[6/6] Servizio systemd..."

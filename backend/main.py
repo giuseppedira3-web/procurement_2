@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from config import DATABASE_URL
@@ -27,12 +26,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Nessun CORSMiddleware: frontend e API sono serviti dallo stesso host/porta
+# (StaticFiles montato su "/" più sotto), quindi non serve permettere origini
+# esterne — un allow_origins=["*"] qui accetterebbe richieste scrivibili
+# (POST/PATCH/DELETE) da qualunque pagina web aperta da un client sulla rete.
 
 _AZIONI = {"POST": "creazione", "PATCH": "modifica", "PUT": "modifica", "DELETE": "eliminazione"}
 

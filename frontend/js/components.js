@@ -216,8 +216,10 @@ function chartBarPath(x, y, w, h, r) {
  * xValues: [{ key, label }]
  * data: { [xKey]: { [seriesKey]: number } }
  * formatValue: (n) => string, usata su assi/tooltip/tabella
+ * type: 'bar' (default) | 'line' — la linea salta i mesi senza dato (non li
+ * disegna a zero: per una serie di prezzi, "nessun acquisto" non è "prezzo 0").
  */
-export function renderGroupedBarChart(container, { series, xValues, data, formatValue = String, emptyMsg = 'Nessun dato disponibile', showValues = false }) {
+export function renderGroupedBarChart(container, { series, xValues, data, formatValue = String, emptyMsg = 'Nessun dato disponibile', showValues = false, type = 'bar' }) {
   const hasData = xValues.some(x => series.some(s => (data[x.key]?.[s.key] || 0) > 0));
   let view = 'chart';
 
@@ -230,6 +232,8 @@ export function renderGroupedBarChart(container, { series, xValues, data, format
     const groupW = plotW / xValues.length;
     const barGap = 2, groupPad = 6;
     const barW = Math.min(24, (groupW - groupPad * 2 - barGap * (series.length - 1)) / series.length);
+    const xCenter = i => marginL + i * groupW + groupW / 2;
+    const yFor = val => marginT + plotH - (val / yMax) * plotH;
 
     const gridlines = Array.from({ length: yTicks + 1 }, (_, i) => {
       const val = yMax * i / yTicks;
@@ -239,10 +243,11 @@ export function renderGroupedBarChart(container, { series, xValues, data, format
         <text x="${marginL - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="${CHART_INK.muted}">${formatValue(val)}</text>`;
     }).join('');
 
+    const xLabels = xValues.map((x, i) => `
+        <text x="${xCenter(i)}" y="${H - marginB + 16}" text-anchor="middle" font-size="11" fill="${CHART_INK.muted}">${x.label}</text>`).join('');
+
     const bars = xValues.map((x, i) => {
       const x0 = marginL + i * groupW;
-      const label = `
-        <text x="${x0 + groupW / 2}" y="${H - marginB + 16}" text-anchor="middle" font-size="11" fill="${CHART_INK.muted}">${x.label}</text>`;
       const groupBars = series.map((s, j) => {
         const val = data[x.key]?.[s.key] || 0;
         const barH = (val / yMax) * plotH;
@@ -256,8 +261,38 @@ export function renderGroupedBarChart(container, { series, xValues, data, format
         return path ? `<path d="${path}" fill="${s.color}" tabindex="0" role="img" aria-label="${title}"
           class="chart-bar" data-title="${title}"></path>${valueLabel}` : '';
       }).join('');
-      return groupBars + label;
+      return groupBars;
     }).join('');
+
+    const lines = series.map(s => {
+      // Punti mese per mese; i mesi senza dato spezzano la linea invece di
+      // scendere a zero (un buco nei dati non è un prezzo nullo).
+      const pts = xValues.map((x, i) => {
+        const raw = data[x.key]?.[s.key];
+        return raw != null ? { i, val: Number(raw) } : null;
+      });
+      const runs = [];
+      let cur = [];
+      pts.forEach(p => { if (p) cur.push(p); else if (cur.length) { runs.push(cur); cur = []; } });
+      if (cur.length) runs.push(cur);
+
+      const segments = runs.filter(r => r.length > 1).map(r => `
+        <polyline points="${r.map(p => `${xCenter(p.i)},${yFor(p.val)}`).join(' ')}"
+          fill="none" stroke="${s.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`).join('');
+
+      const points = pts.filter(Boolean).map(p => {
+        const title = `${s.label} — ${xValues[p.i].label}: ${formatValue(p.val)}`;
+        const valueLabel = showValues
+          ? `<text x="${xCenter(p.i)}" y="${Math.max(yFor(p.val) - 8, marginT + 8)}" text-anchor="middle" font-size="9" fill="${CHART_INK.muted}">${formatValue(p.val)}</text>`
+          : '';
+        return `<circle cx="${xCenter(p.i)}" cy="${yFor(p.val)}" r="3.5" fill="${s.color}" tabindex="0" role="img"
+          aria-label="${title}" class="chart-bar" data-title="${title}"></circle>${valueLabel}`;
+      }).join('');
+
+      return segments + points;
+    }).join('');
+
+    const marks = (type === 'line' ? lines : bars) + xLabels;
 
     const baseline = `<line x1="${marginL}" y1="${marginT + plotH}" x2="${W - marginR}" y2="${marginT + plotH}" stroke="${CHART_INK.axis}" stroke-width="1" />`;
 
@@ -275,8 +310,8 @@ export function renderGroupedBarChart(container, { series, xValues, data, format
         </button>
       </div>
       <div class="chart-wrap position-relative">
-        <svg viewBox="0 0 ${W} ${H}" class="w-100 h-auto" role="img" aria-label="Quantità ordinate per categoria, ultimi 12 mesi">
-          ${gridlines}${baseline}${bars}
+        <svg viewBox="0 0 ${W} ${H}" class="w-100 h-auto" role="img" aria-label="Andamento mensile">
+          ${gridlines}${baseline}${marks}
         </svg>
         <div class="chart-tooltip d-none"></div>
       </div>`;

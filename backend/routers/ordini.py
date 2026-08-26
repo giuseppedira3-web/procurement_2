@@ -79,15 +79,15 @@ async def create_ordine(body: OrdineCreate, conn: asyncpg.Connection = Depends(g
                     riferimento_fornitore, data_ordine, data_consegna_prevista,
                     luogo_consegna, incoterm, valuta, stato,
                     id_magazzino_origine, comune_destinazione, id_vettore,
-                    zincatura, id_zincheria, ditta, note
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+                    zincatura, id_zincheria, cbam, prezzo_cbam_kg, ditta, note
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
                 RETURNING *
                 """,
                 codice, body.id_fornitore, numero, anno,
                 body.riferimento_fornitore, body.data_ordine, body.data_consegna_prevista,
                 body.luogo_consegna, body.incoterm, body.valuta, body.stato,
                 body.id_magazzino_origine, body.comune_destinazione, body.id_vettore,
-                body.zincatura, body.id_zincheria, body.ditta, body.note,
+                body.zincatura, body.id_zincheria, body.cbam, body.prezzo_cbam_kg, body.ditta, body.note,
             )
         except asyncpg.ForeignKeyViolationError as e:
             raise HTTPException(422, detail=str(e))
@@ -121,7 +121,7 @@ async def list_all_righe(
             r.quantita_ordinata, r.unita_misura, r.quantita_kg,
             r.prezzo_unitario, r.importo_riga,
             r.sconto_percentuale, r.sconto_2_percentuale, r.sconto_3_percentuale, r.sconto_4_percentuale,
-            r.prezzo_zincatura,
+            r.prezzo_zincatura, r.prezzo_cbam_kg,
             t.prezzo_trasporto_kg,
             r.quantita_consegnata, r.quantita_fatturata, r.stato_riga,
             r.qualita_acciaio, r.lunghezza_mm,
@@ -198,12 +198,15 @@ async def delete_ordine(id: int, conn: asyncpg.Connection = Depends(get_conn)):
 # ---------------------------------------------------------------------------
 
 def _calcola_importo(qta: Decimal, prezzo: Decimal, *sconti: Decimal,
-                     prezzo_zincatura: Decimal | None = None) -> Decimal:
+                     prezzo_zincatura: Decimal | None = None,
+                     prezzo_cbam_kg: Decimal | None = None) -> Decimal:
     result = qta * prezzo
     for s in sconti:
         result *= (1 + s / 100)
     if prezzo_zincatura:
         result += qta * prezzo_zincatura
+    if prezzo_cbam_kg:
+        result += qta * prezzo_cbam_kg
     return result.quantize(Decimal("0.01"))
 
 
@@ -232,6 +235,7 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
         body.sconto_percentuale, body.sconto_2_percentuale,
         body.sconto_3_percentuale, body.sconto_4_percentuale,
         prezzo_zincatura=body.prezzo_zincatura,
+        prezzo_cbam_kg=body.prezzo_cbam_kg,
     )
     try:
         row = await conn.fetchrow(
@@ -243,9 +247,9 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
                 sconto_percentuale, sconto_2_percentuale, sconto_3_percentuale, sconto_4_percentuale,
                 importo_riga, tolleranza_chiusura_kg,
                 qualita_acciaio, lunghezza_mm,
-                id_listino_zincatura, prezzo_zincatura,
+                id_listino_zincatura, prezzo_zincatura, prezzo_cbam_kg,
                 data_consegna_prevista, note
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
             RETURNING *
             """,
             id, body.numero_riga, body.id_prodotto, body.descrizione_libera,
@@ -255,7 +259,7 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
             body.sconto_3_percentuale, body.sconto_4_percentuale,
             importo, body.tolleranza_chiusura_kg,
             body.qualita_acciaio, body.lunghezza_mm,
-            body.id_listino_zincatura, body.prezzo_zincatura,
+            body.id_listino_zincatura, body.prezzo_zincatura, body.prezzo_cbam_kg,
             body.data_consegna_prevista, body.note,
         )
     except asyncpg.UniqueViolationError:
@@ -287,7 +291,9 @@ async def update_riga_ordine(
     s4     = Decimal(str(updates.get("sconto_4_percentuale", row["sconto_4_percentuale"])))
     pz_raw = updates.get("prezzo_zincatura", row["prezzo_zincatura"])
     pz     = Decimal(str(pz_raw)) if pz_raw is not None else None
-    updates["importo_riga"] = _calcola_importo(qta, prezzo, s1, s2, s3, s4, prezzo_zincatura=pz)
+    cbam_raw = updates.get("prezzo_cbam_kg", row["prezzo_cbam_kg"])
+    cbam_kg  = Decimal(str(cbam_raw)) if cbam_raw is not None else None
+    updates["importo_riga"] = _calcola_importo(qta, prezzo, s1, s2, s3, s4, prezzo_zincatura=pz, prezzo_cbam_kg=cbam_kg)
     sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(updates))
     updated = await conn.fetchrow(
         f"UPDATE ordini_righe SET {sets} WHERE id = $1 RETURNING *",

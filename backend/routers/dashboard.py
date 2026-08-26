@@ -78,17 +78,30 @@ async def ordini_categoria_mensile(
     return [dict(r) for r in rows]
 
 
+_RAGGRUPPAMENTI = {
+    # raggruppa_per -> (espressione SQL del gruppo, alias esposto nella risposta)
+    "zincatura":       ("o.zincatura",         "zincato"),
+    "categoria_trave":  ("p.categoria_trave",  "categoria_trave"),
+    "nessuno":          ("true",               "gruppo"),
+}
+
+
 @router.get("/quantita-prezzo-mensile")
 async def quantita_prezzo_mensile(
     categoria: str = "MERCANTILE",
+    raggruppa_per: str = Query("zincatura", pattern="^(zincatura|categoria_trave|nessuno)$",
+                                description="Dimensione di raggruppamento oltre al mese"),
     ditta: str | None = None,
     mesi: int = Query(12, ge=1, le=36, description="Ampiezza finestra, mese corrente incluso"),
     admin: dict = Depends(require_admin),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
-    """Peso (kg) e prezzo medio ponderato di acquisto per mese, separati fra
-    zincato e grezzo (ordini.zincatura), per una categoria a struttura
-    "base di mercato + extra di lavorazione" (MERCANTILE, TRAVI).
+    """Peso (kg) e prezzo medio ponderato di acquisto per mese, per una
+    categoria a struttura "base di mercato + extra di lavorazione"
+    (MERCANTILE, TRAVI). `raggruppa_per` seleziona la dimensione aggiuntiva:
+    "zincatura" (zincato/grezzo, per MERCANTILE), "categoria_trave" (Cat 0-5,
+    per TRAVI) o "nessuno" (tutto in un unico gruppo per mese, per una vista
+    aggregata).
 
     Il prezzo mediato è il prezzo netto per kg (base + extra, già scontato,
     più zincatura e trasporto se presenti) meno l'extra di lavorazione
@@ -104,6 +117,7 @@ async def quantita_prezzo_mensile(
     dal calcolo del prezzo (non c'è un extra da sottrarre in modo affidabile),
     ma resta conteggiata nel peso_kg — che non dipende dall'extra. Solo admin.
     """
+    gruppo_expr, gruppo_alias = _RAGGRUPPAMENTI[raggruppa_per]
     filters, params = [
         "cp.codice = $1",
         "o.data_ordine >= date_trunc('month', CURRENT_DATE) - ($2 * INTERVAL '1 month')",
@@ -117,7 +131,7 @@ async def quantita_prezzo_mensile(
         f"""WITH righe AS (
                 SELECT
                     o.data_ordine,
-                    o.zincatura,
+                    {gruppo_expr}                                               AS gruppo,
                     r.quantita_kg,
                     r.importo_riga,
                     COALESCE(t.prezzo_trasporto_kg, 0)                          AS trasporto_kg,
@@ -134,11 +148,113 @@ async def quantita_prezzo_mensile(
                 {where}
             )
             SELECT to_char(date_trunc('month', data_ordine), 'YYYY-MM') AS mese,
-                   zincatura                                            AS zincato,
+                   gruppo                                               AS {gruppo_alias},
                    SUM(quantita_kg)                                     AS peso_kg,
                    SUM(importo_riga + quantita_kg * trasporto_kg - quantita_kg * extra_ton / 1000)
                        FILTER (WHERE extra_ton IS NOT NULL)
                        / NULLIF(SUM(quantita_kg) FILTER (WHERE extra_ton IS NOT NULL), 0)
+                                                                         AS prezzo_medio_kg
+            FROM righe
+            GROUP BY 1, 2
+            ORDER BY 1, 2""",
+        *params,
+    )
+    return [dict(r) for r in rows]
+
+
+@router.get("/tubolare-mensile")
+async def tubolare_mensile(
+    ditta: str | None = None,
+    mesi: int = Query(12, ge=1, le=36, description="Ampiezza finestra, mese corrente incluso"),
+    admin: dict = Depends(require_admin),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Peso (kg) e prezzo medio ponderato di acquisto per mese per la
+    categoria TUBOLARE, separati fra zincato e grezzo (codice prodotto con
+    suffisso "Z", come per il gemello grezzo del Mercantile — su TUBOLARE lo
+    zincato è un prodotto a listino a sé, non un servizio in conto lavoro).
+
+    A differenza di MERCANTILE/TRAVI, ogni tubo ha un prezzo di listino
+    assoluto (materiale + lavorazione), senza una scomposizione base/extra:
+    non c'è quindi un'unica componente "comparabile" da isolare. Si normalizza
+    invece ogni acquisto rispetto al prezzo di un profilo di riferimento
+    (Q403 grezzo / Q403Z zincato, tubo quadro 40x40x3, standard di settore):
+    prezzo_normalizzato = prezzo netto per kg (incluso trasporto) − delta,
+    dove delta = prezzo di listino del profilo acquistato meno quello del
+    riferimento, entrambi in €/kg. Il listino usato per calcolare i prezzi
+    (sia del profilo acquistato sia del riferimento) è quello effettivamente
+    in vigore alla data dell'ordine, secondo la decorrenza impostata su
+    listini_tubolare (data_inizio/data_fine — data_fine NULL = tuttora
+    vigente). Ordini fuori da qualunque decorrenza, o profili privi di prezzo
+    di listino o di conversione a kg, sono esclusi dalla media del prezzo ma
+    restano nel peso_kg. Solo admin.
+    """
+    filters, params = [
+        "cp.codice = 'TUBOLARE'",
+        "o.data_ordine >= date_trunc('month', CURRENT_DATE) - ($1 * INTERVAL '1 month')",
+        "r.quantita_kg > 0",
+    ], [mesi - 1]
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"o.ditta = ${len(params)}")
+    where = "WHERE " + " AND ".join(filters)
+    rows = await conn.fetch(
+        f"""WITH listino_ordine AS (
+                -- Listino tubolare in vigore alla data di ogni ordine (il più
+                -- recente, se per errore più decorrenze si sovrappongono).
+                SELECT DISTINCT ON (o.id) o.id AS id_ordine, l.id AS id_listino
+                FROM ordini o
+                JOIN listini_tubolare l
+                       ON l.data_inizio IS NOT NULL
+                      AND o.data_ordine >= l.data_inizio
+                      AND (l.data_fine IS NULL OR o.data_ordine < l.data_fine + INTERVAL '1 month')
+                ORDER BY o.id, l.data_inizio DESC
+            ),
+            riferimento AS (
+                -- Prezzo €/kg di Q403 (grezzo) e Q403Z (zincato) nel listino di ogni ordine.
+                SELECT lo.id_ordine,
+                       MAX(CASE WHEN p.codice_prodotto = 'Q403'  THEN ltp.prezzo / NULLIF(cv.fattore_conversione, 0) END) AS prezzo_grezzo_kg,
+                       MAX(CASE WHEN p.codice_prodotto = 'Q403Z' THEN ltp.prezzo / NULLIF(cv.fattore_conversione, 0) END) AS prezzo_zincato_kg
+                FROM listino_ordine lo
+                JOIN listino_tubolare_prezzi ltp ON ltp.id_listino = lo.id_listino AND ltp.qualita = 'prezzo_riferimento'
+                JOIN prodotti p ON p.id = ltp.id_prodotto AND p.codice_prodotto IN ('Q403', 'Q403Z')
+                JOIN conversioni_peso cv ON cv.id_prodotto = p.id AND cv.da_unita = p.unita_misura_acquisto AND cv.a_unita = 'kg'
+                GROUP BY lo.id_ordine
+            ),
+            prezzi_prodotto AS (
+                -- Prezzo di listino €/kg di ciascun profilo, nel listino di ogni ordine.
+                SELECT lo.id_ordine, pp.id AS id_prodotto,
+                       ltp.prezzo / CASE WHEN pp.unita_misura_acquisto = 'kg' THEN 1 ELSE NULLIF(cv.fattore_conversione, 0) END AS prezzo_listino_kg
+                FROM listino_ordine lo
+                JOIN listino_tubolare_prezzi ltp ON ltp.id_listino = lo.id_listino AND ltp.qualita = 'prezzo_riferimento'
+                JOIN prodotti pp ON pp.id = ltp.id_prodotto
+                LEFT JOIN conversioni_peso cv ON cv.id_prodotto = pp.id AND cv.da_unita = pp.unita_misura_acquisto AND cv.a_unita = 'kg'
+            ),
+            righe AS (
+                SELECT
+                    o.data_ordine,
+                    (p.codice_prodotto ~ 'Z$')                                  AS zincato,
+                    r.quantita_kg,
+                    r.importo_riga,
+                    COALESCE(t.prezzo_trasporto_kg, 0)                         AS trasporto_kg,
+                    pp.prezzo_listino_kg
+                        - CASE WHEN p.codice_prodotto ~ 'Z$' THEN rif.prezzo_zincato_kg ELSE rif.prezzo_grezzo_kg END
+                                                                                AS delta_kg
+                FROM ordini_righe r
+                JOIN ordini o ON o.id = r.id_ordine
+                JOIN prodotti p ON p.id = r.id_prodotto
+                JOIN categorie_prodotto cp ON cp.id = p.id_categoria
+                LEFT JOIN v_trasporto_righe_ordine t ON t.id_riga_ordine = r.id
+                LEFT JOIN prezzi_prodotto pp ON pp.id_ordine = o.id AND pp.id_prodotto = p.id
+                LEFT JOIN riferimento rif ON rif.id_ordine = o.id
+                {where}
+            )
+            SELECT to_char(date_trunc('month', data_ordine), 'YYYY-MM') AS mese,
+                   zincato,
+                   SUM(quantita_kg)                                     AS peso_kg,
+                   SUM(importo_riga + quantita_kg * trasporto_kg - quantita_kg * delta_kg)
+                       FILTER (WHERE delta_kg IS NOT NULL)
+                       / NULLIF(SUM(quantita_kg) FILTER (WHERE delta_kg IS NOT NULL), 0)
                                                                          AS prezzo_medio_kg
             FROM righe
             GROUP BY 1, 2

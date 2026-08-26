@@ -9,6 +9,21 @@ function fmtSconto(v) {
   return `<small class="${n < 0 ? 'text-success' : 'text-warning'}">${n > 0 ? '+' : ''}${n}%</small>`;
 }
 
+// Scomposizione del prezzo di riga: base scontata (sconti a catena 1-4) +
+// zincatura + trasporto + CBAM = netto. Unica fonte di verità per questo
+// calcolo, usata sia dalla vista Righe globale che dal dettaglio ordine.
+function calcolaPrezzi(r) {
+  const s1 = Number(r.sconto_percentuale   || 0);
+  const s2 = Number(r.sconto_2_percentuale || 0);
+  const s3 = Number(r.sconto_3_percentuale || 0);
+  const s4 = Number(r.sconto_4_percentuale || 0);
+  const zinc  = r.prezzo_zincatura    != null ? Number(r.prezzo_zincatura)    : 0;
+  const trasp = r.prezzo_trasporto_kg != null ? Number(r.prezzo_trasporto_kg) : 0;
+  const cbam  = r.prezzo_cbam_kg      != null ? Number(r.prezzo_cbam_kg)      : 0;
+  const base  = Number(r.prezzo_unitario) * (1+s1/100) * (1+s2/100) * (1+s3/100) * (1+s4/100);
+  return { s1, s2, s3, s4, base, zinc, trasp, cbam, netto: base + zinc + trasp + cbam };
+}
+
 // ---------------------------------------------------------------------------
 // LIST
 // ---------------------------------------------------------------------------
@@ -31,15 +46,16 @@ const INCOTERM = ['EXW','FOB','CIF','Reso','Partenza'];
 // Categorie per cui la lunghezza è caratteristica determinante del prodotto
 const CAT_CON_LUNGHEZZA = ['TRAVI', 'MERCANTILE', 'TUBOLARE'];
 
-// Mostra/nasconde il selettore Zincheria in base al flag "Servizio di zincatura"
-function toggleZincheria(body) {
-  const chk = body.querySelector('[name="zincatura"]');
-  const sel = body.querySelector('[name="id_zincheria"]');
-  if (!chk || !sel) return;
-  const col = sel.parentElement;
+// Mostra/nasconde un campo in base a un checkbox correlato (es. Zincheria in
+// base a "Servizio di zincatura", Tariffa CBAM in base a "CBAM").
+function toggleFieldByCheckbox(body, chkName, fieldName) {
+  const chk = body.querySelector(`[name="${chkName}"]`);
+  const field = body.querySelector(`[name="${fieldName}"]`);
+  if (!chk || !field) return;
+  const col = field.parentElement;
   const apply = () => {
     col.style.display = chk.checked ? '' : 'none';
-    if (!chk.checked) sel.value = '';
+    if (!chk.checked) field.value = '';
   };
   chk.addEventListener('change', apply);
   apply();
@@ -80,6 +96,8 @@ export async function renderOrdini(container, id) {
     { name: 'zincatura',              label: 'Servizio di zincatura', type: 'checkbox', col: 3, value: false },
     { name: 'id_zincheria',           label: 'Zincheria',         type: 'select', col: 5,
       options: zincherieOptions },
+    { name: 'cbam',                   label: 'CBAM (fornitore estero)', type: 'checkbox', col: 3, value: false },
+    { name: 'prezzo_cbam_kg',         label: 'Tariffa CBAM (€/kg)', type: 'decimal', col: 4, step: '0.000001' },
     { name: 'luogo_consegna',         label: 'Luogo Consegna',    type: 'text',   col: 12 },
     { name: 'note',                   label: 'Note',              type: 'textarea', col: 12 },
   ];
@@ -113,7 +131,8 @@ export async function renderOrdini(container, id) {
             attivi.map(m => `<option value="${m.id}">${m.comune}</option>`).join('');
           origSel.disabled = false;
         });
-        toggleZincheria(body);
+        toggleFieldByCheckbox(body, 'zincatura', 'id_zincheria');
+        toggleFieldByCheckbox(body, 'cbam', 'prezzo_cbam_kg');
       },
       onSave: async data => {
         const ord = await api.ordini.create(data);
@@ -178,13 +197,7 @@ async function renderRigheView(container, fornitori, fornMap) {
     const pct     = Number(r.quantita_ordinata) > 0
       ? Math.round(Number(r.quantita_consegnata) / Number(r.quantita_ordinata) * 100) : 0;
     const barColor = pct >= 100 ? 'bg-success' : pct > 0 ? 'bg-warning' : 'bg-secondary';
-    const s1 = Number(r.sconto_percentuale   || 0);
-    const s2 = Number(r.sconto_2_percentuale || 0);
-    const s3 = Number(r.sconto_3_percentuale || 0);
-    const s4 = Number(r.sconto_4_percentuale || 0);
-    const zinc  = r.prezzo_zincatura     != null ? Number(r.prezzo_zincatura)     : 0;
-    const trasp = r.prezzo_trasporto_kg  != null ? Number(r.prezzo_trasporto_kg)  : 0;
-    const base  = Number(r.prezzo_unitario) * (1+s1/100) * (1+s2/100) * (1+s3/100) * (1+s4/100);
+    const { base, netto } = calcolaPrezzi(r);
     return {
       ...r,
       _fornitore: fornMap[r.id_fornitore] || '—',
@@ -197,7 +210,7 @@ async function renderRigheView(container, fornitori, fornMap) {
                  <div class="progress-bar ${barColor}" style="width:${Math.min(pct,100)}%"></div>
                </div>`,
       _base:  base,
-      _netto: base + zinc + trasp,
+      _netto: netto,
     };
   });
 
@@ -294,14 +307,8 @@ async function renderDetail(container, id) {
   // Prepara righe con campi calcolati
   const prodMap = Object.fromEntries(prodotti.map(p => [p.id, { codice: p.codice_prodotto, desc: p.descrizione }]));
   const detailRows = ord.righe.map(r => {
-    const s1 = Number(r.sconto_percentuale   || 0);
-    const s2 = Number(r.sconto_2_percentuale || 0);
-    const s3 = Number(r.sconto_3_percentuale || 0);
-    const s4 = Number(r.sconto_4_percentuale || 0);
     const prod = r.id_prodotto ? prodMap[r.id_prodotto] : null;
-    const zinc = r.prezzo_zincatura != null ? Number(r.prezzo_zincatura) : 0;
-    const trasp = r.prezzo_trasporto_kg != null ? Number(r.prezzo_trasporto_kg) : 0;
-    const netMat = Number(r.prezzo_unitario) * (1+s1/100) * (1+s2/100) * (1+s3/100) * (1+s4/100);
+    const { s1, s2, s3, s4, zinc, trasp, cbam, netto } = calcolaPrezzi(r);
     return {
       ...r,
       _prodotto:      prod ? (prod.desc || prod.codice) : (r.descrizione_libera || '—'),
@@ -309,7 +316,8 @@ async function renderDetail(container, id) {
       _s1: s1, _s2: s2, _s3: s3, _s4: s4,
       _zinc: zinc || null,
       _trasp: trasp || null,
-      _prezzoNetto: netMat + zinc + trasp,
+      _cbam: cbam || null,
+      _prezzoNetto: netto,
     };
   });
   const hasTrasporto = detailRows.some(r => r._trasp);
@@ -332,6 +340,8 @@ async function renderDetail(container, id) {
       fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
     { key: '_trasp', label: 'Trasp.', class: 'text-end', filterable: false,
       fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
+    { key: '_cbam', label: 'CBAM', class: 'text-end', filterable: false,
+      fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
     { key: '_prezzoNetto',        label: 'P.Netto',    class: 'text-end', filterable: false,
       fmt: v => `<strong>${fmt(v, 'number')}</strong>` },
     { key: 'importo_riga',        label: 'Importo',    class: 'text-end', fmt: v => fmt(v, 'currency') },
@@ -350,7 +360,8 @@ async function renderDetail(container, id) {
 
   const cols = DETAIL_COLS
     .filter(c => c.key !== '_zinc' || ord.zincatura)
-    .filter(c => c.key !== '_trasp' || hasTrasporto);
+    .filter(c => c.key !== '_trasp' || hasTrasporto)
+    .filter(c => c.key !== '_cbam' || ord.cbam);
   renderTable(righeWrap.querySelector('#righe-tbl'), {
     columns: cols,
     rows: detailRows,
@@ -378,12 +389,17 @@ async function renderDetail(container, id) {
       { name: 'id_vettore',             label: 'Vettore',        type: 'select', col: 4, options: vettOpts },
       { name: 'zincatura',              label: 'Servizio di zincatura', type: 'checkbox', col: 3, value: ord.zincatura },
       { name: 'id_zincheria',           label: 'Zincheria',      type: 'select', col: 5, options: zincOpts },
+      { name: 'cbam',                   label: 'CBAM (fornitore estero)', type: 'checkbox', col: 3, value: ord.cbam },
+      { name: 'prezzo_cbam_kg',         label: 'Tariffa CBAM (€/kg)', type: 'decimal', col: 4, step: '0.000001' },
       { name: 'luogo_consegna',         label: 'Luogo Consegna', type: 'text',   col: 12 },
       { name: 'note',                   label: 'Note',           type: 'textarea', col: 12 },
     ];
     showFormModal({
       title: 'Modifica Testata Ordine', fields, values: ord,
-      afterShow: body => toggleZincheria(body),
+      afterShow: body => {
+        toggleFieldByCheckbox(body, 'zincatura', 'id_zincheria');
+        toggleFieldByCheckbox(body, 'cbam', 'prezzo_cbam_kg');
+      },
       onSave: async data => { await api.ordini.update(id, data); toast('Ordine aggiornato'); renderDetail(container, id); },
     });
   };
@@ -432,6 +448,7 @@ function headerCard(ord) {
       ${dl('Destinazione', ord.comune_destinazione, 3)}
       ${dl('Vettore', ord.nome_vettore, 3)}
       ${ord.zincatura ? dl('Zincatura', `<span class="badge bg-primary">${ord.nome_zincheria || 'sì'}</span>`, 3) : ''}
+      ${ord.cbam ? dl('CBAM', `<span class="badge bg-warning text-dark">${fmt(ord.prezzo_cbam_kg, 'number')} €/kg</span>`, 3) : ''}
       ${dl('Luogo Consegna', ord.luogo_consegna, 3)}
       ${ord.note ? dl('Note', ord.note, 12) : ''}
     </div>
@@ -672,6 +689,8 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
       delete sendData.codice_prodotto;
       if (sendData.id_prodotto) sendData.id_prodotto = parseInt(sendData.id_prodotto);
       if (sendData.id_listino_zincatura) sendData.id_listino_zincatura = parseInt(sendData.id_listino_zincatura);
+      // CBAM: tariffa unica d'ordine, ereditata da ogni riga (non scelta dal compilatore)
+      if (ord.cbam && ord.prezzo_cbam_kg != null) sendData.prezzo_cbam_kg = ord.prezzo_cbam_kg;
       if (rigaId) {
         await api.ordini.righe.update(ordineId, rigaId, sendData);
         toast('Riga aggiornata');

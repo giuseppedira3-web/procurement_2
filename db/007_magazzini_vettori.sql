@@ -24,9 +24,9 @@ CREATE TABLE vettori (
 );
 
 ALTER TABLE ordini
-    ADD COLUMN id_magazzino_origine INTEGER REFERENCES magazzini_fornitore(id),
-    ADD COLUMN comune_destinazione  VARCHAR(100),
-    ADD COLUMN id_vettore           INTEGER REFERENCES vettori(id);
+    ADD COLUMN IF NOT EXISTS id_magazzino_origine INTEGER REFERENCES magazzini_fornitore(id),
+    ADD COLUMN IF NOT EXISTS comune_destinazione  VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS id_vettore           INTEGER REFERENCES vettori(id);
 
 GRANT ALL PRIVILEGES ON TABLE  magazzini_fornitore            TO procurement_user;
 GRANT ALL PRIVILEGES ON TABLE  vettori                        TO procurement_user;

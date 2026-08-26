@@ -23,12 +23,15 @@ function ultimi12Mesi() {
 export async function renderDashboard(container) {
   const isAdmin = getUtente()?.ruolo === 'admin';
 
+  // I due fetch admin-only hanno il proprio .catch(): se uno fallisce (es. una
+  // migrazione mancante sul server) degrada al widget vuoto invece di far
+  // rigettare l'intero Promise.all e lasciare tutta la dashboard bianca.
   const [ordini, ddt, esposizione, totali, ordiniCategoria] = await Promise.all([
     api.dashboard.statoOrdini('?limit=1000'),
     api.dashboard.ddtNonFatturati(),
     api.dashboard.esposizione(),
-    isAdmin ? api.dashboard.totaliOrdini() : Promise.resolve(null),
-    isAdmin ? api.dashboard.ordiniCategoriaMensile() : Promise.resolve([]),
+    isAdmin ? api.dashboard.totaliOrdini().catch(() => null) : Promise.resolve(null),
+    isAdmin ? api.dashboard.ordiniCategoriaMensile().catch(() => []) : Promise.resolve([]),
   ]);
 
   const totOrdini    = ordini.length;
@@ -49,7 +52,8 @@ export async function renderDashboard(container) {
   const inCorso = ordiniAperti.length;
 
   container.innerHTML = `
-  ${isAdmin ? `
+  ${isAdmin && !totali ? '<div class="alert alert-warning small mb-3"><i class="bi bi-exclamation-triangle me-1"></i>Impossibile caricare i totali ordinato/consegnato.</div>' : ''}
+  ${isAdmin && totali ? `
   <div class="row g-3 mb-3">
     <div class="col-md-4">
       <div class="stat-card d-flex justify-content-between align-items-start">

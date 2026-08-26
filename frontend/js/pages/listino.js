@@ -98,7 +98,9 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
   wrap.innerHTML = `
     <div class="table-toolbar flex-wrap gap-2">
       <label class="small text-muted mb-0 me-1">Listino</label>
-      <select class="form-select form-select-sm" style="max-width:180px" data-f="listino"></select>
+      <select class="form-select form-select-sm" style="max-width:240px" data-f="listino"></select>
+      <button class="btn btn-outline-secondary btn-sm" data-action="edit-listino" title="Modifica nome/decorrenza del listino selezionato">
+        <i class="bi bi-pencil"></i></button>
       <button class="btn btn-outline-secondary btn-sm" data-action="new-listino" title="Crea un nuovo listino vuoto">
         <i class="bi bi-plus-lg"></i></button>
       <label class="small text-muted mb-0 ms-3 me-1">Sconto</label>
@@ -143,9 +145,15 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
 
   const prezzoKey = (idProdotto, qualita) => `${idProdotto}|${qualita}`;
 
+  // "2026-01-01" -> "01/2026"
+  const meseAnno = d => d ? `${d.slice(5, 7)}/${d.slice(0, 4)}` : null;
+
   function renderListinoSelect() {
     const sel = wrap.querySelector('[data-f="listino"]');
-    sel.innerHTML = listini.map(l => `<option value="${l.id}" ${listinoAttivo && l.id === listinoAttivo.id ? 'selected' : ''}>${l.nome}</option>`).join('');
+    sel.innerHTML = listini.map(l => {
+      const range = l.data_inizio ? ` (${meseAnno(l.data_inizio)} – ${l.data_fine ? meseAnno(l.data_fine) : 'in corso'})` : ' (decorrenza non impostata)';
+      return `<option value="${l.id}" ${listinoAttivo && l.id === listinoAttivo.id ? 'selected' : ''}>${l.nome}${range}</option>`;
+    }).join('');
   }
 
   async function loadPrezzi() {
@@ -202,12 +210,22 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
     await refreshAll();
   });
 
+  const CAMPI_DECORRENZA = [
+    { name: 'nome',        label: 'Nome Listino', type: 'text',  required: true, col: 12, placeholder: 'es. Listino 2/2026' },
+    { name: 'data_inizio', label: 'In vigore da',  type: 'month', required: true, col: 6 },
+    { name: 'data_fine',   label: 'Fino a (vuoto = tuttora in vigore)', type: 'month', col: 6 },
+  ];
+
   wrap.querySelector('[data-action="new-listino"]').onclick = () => showFormModal({
     title: 'Nuovo Listino Tubolare',
-    fields: [{ name: 'nome', label: 'Nome Listino', type: 'text', required: true, col: 12, placeholder: 'es. Listino 2/2026' }],
+    fields: CAMPI_DECORRENZA,
     values: {},
     onSave: async data => {
-      const nuovo = await api.listiniTubolare.create({ nome: data.nome });
+      const nuovo = await api.listiniTubolare.create({
+        nome: data.nome,
+        data_inizio: data.data_inizio + '-01',
+        data_fine: data.data_fine ? data.data_fine + '-01' : null,
+      });
       listini.unshift(nuovo);
       listinoAttivo = nuovo;
       setListinoTubolareId(nuovo.id);
@@ -216,6 +234,31 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
       await refreshAll();
     },
   });
+
+  wrap.querySelector('[data-action="edit-listino"]').onclick = () => {
+    if (!listinoAttivo) { toast('Nessun listino selezionato', 'warning'); return; }
+    showFormModal({
+      title: `Modifica — ${listinoAttivo.nome}`,
+      fields: CAMPI_DECORRENZA,
+      values: {
+        nome: listinoAttivo.nome,
+        data_inizio: listinoAttivo.data_inizio ? listinoAttivo.data_inizio.slice(0, 7) : '',
+        data_fine: listinoAttivo.data_fine ? listinoAttivo.data_fine.slice(0, 7) : '',
+      },
+      onSave: async data => {
+        const aggiornato = await api.listiniTubolare.update(listinoAttivo.id, {
+          nome: data.nome,
+          data_inizio: data.data_inizio ? data.data_inizio + '-01' : null,
+          data_fine: data.data_fine ? data.data_fine + '-01' : null,
+        });
+        Object.assign(listinoAttivo, aggiornato);
+        const idx = listini.findIndex(l => l.id === listinoAttivo.id);
+        if (idx >= 0) listini[idx] = listinoAttivo;
+        toast('Listino aggiornato');
+        renderListinoSelect();
+      },
+    });
+  };
 
   // Cambio qualità
   QUALITA_TUBOLARE.forEach((q, i) => {

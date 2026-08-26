@@ -52,13 +52,6 @@ export async function confirmDelete(name) {
   });
 }
 
-// Generic select option builder
-export function opts(items, valueKey, labelKey, selected = null) {
-  return items.map(i =>
-    `<option value="${i[valueKey]}" ${i[valueKey] == selected ? 'selected' : ''}>${i[labelKey]}</option>`
-  ).join('');
-}
-
 // Colore identificativo per gli utenti senza password (pulsante di login + fascia header)
 export const USER_COLORS = {
   giovanni: '#dc3545',
@@ -77,9 +70,6 @@ export function countLabel(count, limit, label, checkCount = count) {
     <i class="bi bi-exclamation-triangle-fill me-1"></i>${count} ${label}
   </span>`;
 }
-
-export function qs(sel, ctx = document) { return ctx.querySelector(sel); }
-export function qsa(sel, ctx = document) { return [...ctx.querySelectorAll(sel)]; }
 
 const QUALITA_COLORS = {
   'S235JRH':   'primary',

@@ -158,11 +158,20 @@ QualitaTubolare = Literal["prezzo_riferimento", "prezzo_s275j0h", "prezzo_s355j2
 
 class ListinoTubolareCreate(BaseModel):
     nome: str
+    data_inizio: date
+    data_fine: date | None = None
+
+
+class ListinoTubolareUpdate(BaseModel):
+    nome: str | None = None
+    data_inizio: date | None = None
+    data_fine: date | None = None
 
 
 class ListinoTubolareResponse(ListinoTubolareCreate):
     id: int
     created_at: datetime
+    data_inizio: date | None = None  # obbligatoria in creazione, ma i listini pre-esistenti possono non averla ancora
 
 
 class ListinoTubolarePrezzoUpsert(BaseModel):
@@ -396,6 +405,8 @@ class OrdineCreate(BaseModel):
     id_vettore: int | None = None
     zincatura: bool = False
     id_zincheria: int | None = None
+    cbam: bool = False
+    prezzo_cbam_kg: Decimal | None = None
     ditta: Ditta
     note: str | None = None
 
@@ -413,6 +424,8 @@ class OrdineUpdate(BaseModel):
     id_vettore: int | None = None
     zincatura: bool | None = None
     id_zincheria: int | None = None
+    cbam: bool | None = None
+    prezzo_cbam_kg: Decimal | None = None
     ditta: Ditta | None = None
     note: str | None = None
 
@@ -447,6 +460,7 @@ class OrdineRigaCreate(BaseModel):
     lunghezza_mm: Decimal | None = None
     id_listino_zincatura: int | None = None
     prezzo_zincatura: Decimal | None = None
+    prezzo_cbam_kg: Decimal | None = None
     data_consegna_prevista: date | None = None
     note: str | None = None
 
@@ -475,6 +489,7 @@ class OrdineRigaUpdate(BaseModel):
     lunghezza_mm: Decimal | None = None
     id_listino_zincatura: int | None = None
     prezzo_zincatura: Decimal | None = None
+    prezzo_cbam_kg: Decimal | None = None
     data_consegna_prevista: date | None = None
     note: str | None = None
 

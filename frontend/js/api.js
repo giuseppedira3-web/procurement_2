@@ -94,6 +94,7 @@ export const api = {
                  importPrezzoRiferimento: (idCategoria, file, campoPrezzoImport = 'prezzo_riferimento', idListino = null) => upload(`/prodotti/import-prezzo-riferimento?id_categoria=${idCategoria}&campo_prezzo=${campoPrezzoImport}${idListino != null ? `&id_listino=${idListino}` : ''}`, file),
                  prezzoRiferimentoTemplateUrl: '/prodotti/import-prezzo-riferimento/template' },
   listiniTubolare: { list: (p='') => req('GET', `/listini-tubolare/${p}`), create: b => req('POST', '/listini-tubolare/', b),
+                 update: (id,b) => req('PATCH', `/listini-tubolare/${id}`, b),
                  prezzi: id => req('GET', `/listini-tubolare/${id}/prezzi/`), setPrezzo: (id,b) => req('POST', `/listini-tubolare/${id}/prezzi/`, b) },
   conversioni: { list: (p='') => req('GET', `/conversioni-peso/${p}`), get: id => req('GET', `/conversioni-peso/${id}`), create: b => req('POST', '/conversioni-peso/', b), update: (id,b) => req('PATCH', `/conversioni-peso/${id}`, b), del: id => req('DELETE', `/conversioni-peso/${id}`),
                  importFile: file => upload('/conversioni-peso/import', file), templateUrl: '/conversioni-peso/import/template', exportUrl: '/conversioni-peso/export' },
@@ -115,7 +116,9 @@ export const api = {
     esposizione:       () => req('GET', withDitta('/dashboard/esposizione-fornitori')),
     totaliOrdini:      () => req('GET', withDitta('/dashboard/totali-ordini')),
     ordiniCategoriaMensile: () => req('GET', withDitta('/dashboard/ordini-categoria-mensile')),
-    quantitaPrezzoMensile: ({ categoria = 'MERCANTILE', mesi = 12, ditta } = {}) =>
-      req('GET', `/dashboard/quantita-prezzo-mensile?categoria=${categoria}&mesi=${mesi}${ditta ? '&ditta=' + ditta : ''}`),
+    quantitaPrezzoMensile: ({ categoria = 'MERCANTILE', raggruppaPer = 'zincatura', mesi = 12, ditta } = {}) =>
+      req('GET', `/dashboard/quantita-prezzo-mensile?categoria=${categoria}&raggruppa_per=${raggruppaPer}&mesi=${mesi}${ditta ? '&ditta=' + ditta : ''}`),
+    tubolareMensile: ({ mesi = 12, ditta } = {}) =>
+      req('GET', `/dashboard/tubolare-mensile?mesi=${mesi}${ditta ? '&ditta=' + ditta : ''}`),
   },
 };

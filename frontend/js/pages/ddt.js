@@ -175,6 +175,7 @@ async function renderDetail(container, id) {
         value: r.id,
         label: `${prodLabel}${lungLabel}${qualLabel} — res. ${rimanenti} ${r.unita_misura}`,
         id_prodotto: r.id_prodotto || null,
+        unita_misura: r.unita_misura,
       };
     }));
   });
@@ -321,6 +322,7 @@ function openRigaModal(rigaId, riga, ddtId, ddt, prodotti, ordiniPerDDT, righePe
       const rigaSel   = body.querySelector('[name="id_riga_ordine"]');
       const ordInput  = body.querySelector('[name="id_ordine"]');
       const prodSel   = body.querySelector('[name="id_prodotto"]');
+      const umSel     = body.querySelector('[name="unita_misura"]');
 
       function populateRighe(ordId) {
         const opzioni = ordId ? (righePerOrdine.get(ordId) || []) : [];
@@ -342,9 +344,11 @@ function openRigaModal(rigaId, riga, ddtId, ddt, prodotti, ordiniPerDDT, righePe
         const rigaOrdId = parseInt(e.target.value) || null;
         const ordId = parseInt(ordSel.value) || null;
         ordInput.value = ordId || '';
-        if (rigaOrdId && prodSel && !prodSel.value) {
+        if (rigaOrdId) {
           const found = (righePerOrdine.get(ordId) || []).find(o => o.value === rigaOrdId);
-          if (found?.id_prodotto) prodSel.value = found.id_prodotto;
+          if (found?.id_prodotto && prodSel && !prodSel.value) prodSel.value = found.id_prodotto;
+          // L'unità di misura della consegna coincide sempre con quella ordinata.
+          if (found?.unita_misura && umSel) umSel.value = found.unita_misura;
         }
       });
 
