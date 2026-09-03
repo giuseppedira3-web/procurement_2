@@ -120,5 +120,6 @@ export const api = {
       req('GET', `/dashboard/quantita-prezzo-mensile?categoria=${categoria}&raggruppa_per=${raggruppaPer}&mesi=${mesi}${ditta ? '&ditta=' + ditta : ''}`),
     tubolareMensile: ({ mesi = 12, ditta } = {}) =>
       req('GET', `/dashboard/tubolare-mensile?mesi=${mesi}${ditta ? '&ditta=' + ditta : ''}`),
+    cbamOrdini:        () => req('GET', withDitta('/dashboard/cbam-ordini')),
   },
 };

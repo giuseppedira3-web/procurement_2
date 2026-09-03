@@ -80,7 +80,13 @@ async def ordini_categoria_mensile(
 
 _RAGGRUPPAMENTI = {
     # raggruppa_per -> (espressione SQL del gruppo, alias esposto nella risposta)
-    "zincatura":       ("o.zincatura",         "zincato"),
+    # Nota: per MERCANTILE lo zincato si riconosce dal suffisso "Z" nel codice
+    # prodotto (come per l'extra_ton sopra), non da ordini.zincatura — quel
+    # flag indica il servizio di zincatura in conto lavoro su materiale
+    # grezzo (un caso raro/inutilizzato per MERCANTILE) ed è compilato in modo
+    # incostante, portando a classificare come "grezzo" acquisti di prodotto
+    # già zincato.
+    "zincatura":       ("p.codice_prodotto ~ 'Z$'", "zincato"),
     "categoria_trave":  ("p.categoria_trave",  "categoria_trave"),
     "nessuno":          ("true",               "gruppo"),
 }
@@ -337,6 +343,51 @@ async def ddt_non_fatturati(
     where = ("WHERE " + " AND ".join(filters)) if filters else ""
     rows = await conn.fetch(
         f"SELECT * FROM v_ddt_non_fatturati {where} ORDER BY data_ricezione DESC",
+        *params,
+    )
+    return [dict(r) for r in rows]
+
+
+@router.get("/cbam-ordini")
+async def cbam_ordini(
+    ditta: str | None = None,
+    admin: dict = Depends(require_admin),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Dettaglio righe di tutti gli ordini con CBAM attivo (fornitore
+    extra-UE), con la tariffa e l'importo CBAM di ciascuna riga. Solo admin."""
+    filters, params = ["o.cbam = true"], []
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"o.ditta = ${len(params)}")
+    where = "WHERE " + " AND ".join(filters)
+    rows = await conn.fetch(
+        f"""SELECT
+                o.id                                          AS id_ordine,
+                o.codice_ordine,
+                o.data_ordine,
+                o.stato,
+                o.ditta,
+                o.prezzo_cbam_kg                               AS prezzo_cbam_ordine,
+                f.ragione_sociale                              AS fornitore,
+                r.id                                            AS id_riga,
+                r.numero_riga,
+                p.codice_prodotto,
+                p.descrizione                                   AS descrizione_prodotto,
+                r.descrizione_libera,
+                r.quantita_ordinata,
+                r.unita_misura,
+                r.quantita_kg,
+                r.prezzo_unitario,
+                r.prezzo_cbam_kg,
+                r.importo_riga,
+                COALESCE(r.quantita_kg * r.prezzo_cbam_kg, 0)   AS importo_cbam
+            FROM ordini o
+            JOIN fornitori f ON f.id = o.id_fornitore
+            JOIN ordini_righe r ON r.id_ordine = o.id
+            LEFT JOIN prodotti p ON p.id = r.id_prodotto
+            {where}
+            ORDER BY o.data_ordine DESC, o.numero_progressivo DESC, r.numero_riga""",
         *params,
     )
     return [dict(r) for r in rows]

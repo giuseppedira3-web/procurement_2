@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 Ditta = Literal['ditta1', 'ditta2']
 
@@ -75,6 +75,15 @@ class CategoriaCreate(BaseModel):
     base_cat_3: Decimal | None = None
     base_cat_4: Decimal | None = None
     base_cat_5: Decimal | None = None
+    base_nera: Decimal | None = None
+    base_decapata: Decimal | None = None
+    base_zincata: Decimal | None = None
+    extra_l1000_nera: Decimal | None = None
+    extra_l1000_decapata: Decimal | None = None
+    extra_l1000_zincata: Decimal | None = None
+    extra_l2000_nera: Decimal | None = None
+    extra_l2000_decapata: Decimal | None = None
+    extra_l2000_zincata: Decimal | None = None
     tolleranza_peso: Decimal | None = None
     extra_qualita: Decimal | None = None
 
@@ -91,6 +100,15 @@ class CategoriaUpdate(BaseModel):
     base_cat_3: Decimal | None = None
     base_cat_4: Decimal | None = None
     base_cat_5: Decimal | None = None
+    base_nera: Decimal | None = None
+    base_decapata: Decimal | None = None
+    base_zincata: Decimal | None = None
+    extra_l1000_nera: Decimal | None = None
+    extra_l1000_decapata: Decimal | None = None
+    extra_l1000_zincata: Decimal | None = None
+    extra_l2000_nera: Decimal | None = None
+    extra_l2000_decapata: Decimal | None = None
+    extra_l2000_zincata: Decimal | None = None
     tolleranza_peso: Decimal | None = None
     extra_qualita: Decimal | None = None
 
@@ -103,6 +121,9 @@ class CategoriaResponse(CategoriaCreate):
 # ---------------------------------------------------------------------------
 # PRODOTTI
 # ---------------------------------------------------------------------------
+
+TipologiaLamiera = Literal["Nera", "Decapata", "Zincata"]
+
 
 class ProdottoCreate(BaseModel):
     codice_prodotto: str
@@ -120,6 +141,7 @@ class ProdottoCreate(BaseModel):
     prezzo_s275j0h: Decimal | None = None
     prezzo_s355j2h: Decimal | None = None
     categoria_trave: int | None = None
+    tipologia_lamiera: TipologiaLamiera | None = None
     attivo: bool = True
     note: str | None = None
 
@@ -139,6 +161,7 @@ class ProdottoUpdate(BaseModel):
     prezzo_s275j0h: Decimal | None = None
     prezzo_s355j2h: Decimal | None = None
     categoria_trave: int | None = None
+    tipologia_lamiera: TipologiaLamiera | None = None
     attivo: bool | None = None
     note: str | None = None
 
@@ -456,7 +479,7 @@ class OrdineRigaCreate(BaseModel):
     sconto_3_percentuale: Decimal = Decimal("0")
     sconto_4_percentuale: Decimal = Decimal("0")
     tolleranza_chiusura_kg: Decimal = Decimal("250.00")
-    qualita_acciaio: str | None = None
+    qualita_acciaio: str
     lunghezza_mm: Decimal | None = None
     id_listino_zincatura: int | None = None
     prezzo_zincatura: Decimal | None = None
@@ -469,6 +492,13 @@ class OrdineRigaCreate(BaseModel):
         if self.id_prodotto is None and not self.descrizione_libera:
             raise ValueError("Specificare id_prodotto o descrizione_libera")
         return self
+
+    @field_validator("qualita_acciaio")
+    @classmethod
+    def check_qualita_acciaio(cls, v):
+        if not v or not v.strip():
+            raise ValueError("Qualità acciaio obbligatoria")
+        return v
 
 
 class OrdineRigaUpdate(BaseModel):

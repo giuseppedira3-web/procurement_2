@@ -11,7 +11,8 @@ IMPORT_FIELDS = [
     "codice_prodotto", "descrizione",
     "spessore_mm", "larghezza_mm", "lunghezza_mm", "diametro_mm",
     "norma", "qualita_acciaio",
-    "unita_misura_acquisto", "peso_unitario_kg", "prezzo_riferimento", "categoria_trave", "attivo", "note",
+    "unita_misura_acquisto", "peso_unitario_kg", "prezzo_riferimento",
+    "categoria_trave", "tipologia_lamiera", "attivo", "note",
 ]
 
 # 1:1 con i campi della tabella prodotti (id_categoria espresso come categoria_codice)
@@ -19,7 +20,8 @@ IMPORT_TEMPLATE_HEADERS = [
     "codice_prodotto", "descrizione", "categoria_codice",
     "spessore_mm", "larghezza_mm", "lunghezza_mm", "diametro_mm",
     "norma", "qualita_acciaio",
-    "unita_misura_acquisto", "peso_unitario_kg", "prezzo_riferimento", "categoria_trave", "attivo", "note",
+    "unita_misura_acquisto", "peso_unitario_kg", "prezzo_riferimento",
+    "categoria_trave", "tipologia_lamiera", "attivo", "note",
 ]
 
 IMPORT_DECIMAL_FIELDS = {"spessore_mm", "larghezza_mm", "lunghezza_mm", "diametro_mm", "peso_unitario_kg", "prezzo_riferimento"}
@@ -38,8 +40,8 @@ async def _insert_prodotto(conn: asyncpg.Connection, body: ProdottoCreate):
             norma, qualita_acciaio,
             unita_misura_acquisto, peso_unitario_kg,
             prezzo_riferimento, prezzo_s275j0h, prezzo_s355j2h,
-            categoria_trave, attivo, note
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+            categoria_trave, tipologia_lamiera, attivo, note
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
         RETURNING *
         """,
         body.codice_prodotto, body.descrizione, body.id_categoria,
@@ -47,7 +49,7 @@ async def _insert_prodotto(conn: asyncpg.Connection, body: ProdottoCreate):
         body.norma, body.qualita_acciaio,
         body.unita_misura_acquisto, body.peso_unitario_kg,
         body.prezzo_riferimento, body.prezzo_s275j0h, body.prezzo_s355j2h,
-        body.categoria_trave, body.attivo, body.note,
+        body.categoria_trave, body.tipologia_lamiera, body.attivo, body.note,
     )
 
 
@@ -112,7 +114,7 @@ async def export_prodotti(conn: asyncpg.Connection = Depends(get_conn)):
                p.spessore_mm, p.larghezza_mm, p.lunghezza_mm, p.diametro_mm,
                p.norma, p.qualita_acciaio,
                p.unita_misura_acquisto, p.peso_unitario_kg, p.prezzo_riferimento,
-               p.categoria_trave, p.attivo, p.note
+               p.categoria_trave, p.tipologia_lamiera, p.attivo, p.note
         FROM prodotti p
         LEFT JOIN categorie_prodotto cat ON cat.id = p.id_categoria
         ORDER BY p.codice_prodotto

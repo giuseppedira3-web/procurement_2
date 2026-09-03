@@ -498,8 +498,8 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
     { name: 'sconto_2_percentuale', label: 'Sc.2%',              type: 'decimal', col: 3, value: 0, step: '0.01', placeholder: 'es. +5' },
     { name: 'sconto_3_percentuale', label: 'Sc.3%',              type: 'decimal', col: 3, value: 0, step: '0.01', placeholder: 'es. -1' },
     { name: 'sconto_4_percentuale', label: 'Sc.4%',              type: 'decimal', col: 3, value: 0, step: '0.01' },
-    { name: 'qualita_acciaio',    label: 'Qualità acciaio',  type: 'select', col: 4,
-      options: QUALITA_ACCIAIO.map(v => ({ value: v, label: v || '— non specificata —' })) },
+    { name: 'qualita_acciaio',    label: 'Qualità acciaio',  type: 'select', required: true, col: 4,
+      options: QUALITA_ACCIAIO.filter(v => v).map(v => ({ value: v, label: v })) },
     { name: 'lunghezza_mm',       label: 'Lunghezza (mm)',   type: 'decimal', col: 3, value: 6000 },
     { name: 'data_consegna_prevista', label: 'Cons. Prevista', type: 'date', col: 5 },
     { name: 'note',               label: 'Note',             type: 'textarea', col: 12 },
@@ -531,8 +531,26 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
       const inputUm       = body.querySelector('[name="unita_misura"]');
       const inputQualita  = body.querySelector('[name="qualita_acciaio"]');
       const inputLunghezza = body.querySelector('[name="lunghezza_mm"]');
+      const inputSconto1  = body.querySelector('[name="sconto_percentuale"]');
 
       let currentProd = null;
+
+      // Sc.1% obbligatorio solo per i prodotti TUBOLARE: il prezzo di listino
+      // richiede sempre uno sconto negoziato, per le altre categorie resta
+      // opzionale (default 0).
+      function setSconto1Required(req) {
+        const sField = fields.find(f => f.name === 'sconto_percentuale');
+        if (sField) sField.required = req;
+        if (!inputSconto1) return;
+        const label = inputSconto1.previousElementSibling;
+        if (label) {
+          const ast = label.querySelector('.text-danger');
+          if (req && !ast) label.insertAdjacentHTML('beforeend', ' <span class="text-danger">*</span>');
+          else if (!req && ast) ast.remove();
+        }
+        if (req && inputSconto1.value.trim() === '0') inputSconto1.value = '';
+        if (!req) inputSconto1.classList.remove('is-invalid');
+      }
 
       function showFeedback(msg, ok) {
         body.querySelector('.prod-feedback')?.remove();
@@ -545,18 +563,29 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
         inputCodice.after(fb);
       }
 
-      // Solo per TUBOLARE: nome del listino da cui è stato ripreso il prezzo,
-      // in grigio chiaro sotto il campo prezzo.
-      function showListinoHint(nomeListino) {
-        body.querySelector('.tubolare-listino-hint')?.remove();
-        if (!nomeListino) return;
-        const hint = document.createElement('div');
-        hint.className = 'tubolare-listino-hint text-muted small mt-1';
-        hint.style.opacity = '0.65';
-        hint.textContent = `da ${nomeListino}`;
-        inputPrezzo.after(hint);
+      // Prezzo di listino/riferimento: è solo un suggerimento indicativo, non
+      // viene mai compilato in automatico. Il compilatore deve valutarlo ed
+      // applicarlo esplicitamente cliccando "usa questo prezzo".
+      function showPrezzoSuggerito(valore, nota) {
+        body.querySelector('.prezzo-suggerito')?.remove();
+        if (valore == null) return;
+        const valFmt = Number(valore).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+        const div = document.createElement('div');
+        div.className = 'prezzo-suggerito text-muted small mt-1';
+        div.innerHTML = `<i class="bi bi-lightbulb me-1"></i><strong>${valFmt}</strong>${nota ? ' ' + nota : ''}
+          <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1 ms-1 prezzo-suggerito-apply" title="Usa questo prezzo">
+            <i class="bi bi-arrow-up-circle"></i>
+          </button>`;
+        inputPrezzo.after(div);
+        div.querySelector('.prezzo-suggerito-apply').addEventListener('click', e => {
+          e.preventDefault();
+          inputPrezzo.value = valore;
+          inputPrezzo.classList.remove('is-invalid');
+          div.remove();
+          inputPrezzo.focus();
+        });
       }
-      inputPrezzo.addEventListener('input', () => body.querySelector('.tubolare-listino-hint')?.remove());
+      inputPrezzo.addEventListener('input', () => body.querySelector('.prezzo-suggerito')?.remove());
 
       function recalcKg() {
         if (!currentProd) return;
@@ -591,8 +620,9 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
           currentProd = null;
           inputIdProd.value = '';
           showFeedback(null, false);
-          showListinoHint(null);
+          showPrezzoSuggerito(null);
           setLunghezza(null, isInit);
+          setSconto1Required(false);
           return;
         }
         const prod = prodByCode[codice.trim().toUpperCase()];
@@ -600,39 +630,41 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
           currentProd = null;
           inputIdProd.value = '';
           showFeedback(`Prodotto "${codice}" non trovato in anagrafica`, false);
-          showListinoHint(null);
+          showPrezzoSuggerito(null);
           setLunghezza(null, isInit);
+          setSconto1Required(false);
           return;
         }
         currentProd = prod;
         inputIdProd.value = prod.id;
         showFeedback(prod.descrizione, true);
         setLunghezza(prod, isInit);
+        const cat = catById[prod.id_categoria];
+        setSconto1Required(cat && cat.codice === 'TUBOLARE');
 
         if (!isInit) {
           // Auto-fill U.M. if not yet set
           if (prod.unita_misura_acquisto && !inputUm.value)
             inputUm.value = prod.unita_misura_acquisto;
 
-          showListinoHint(null);
-          const cat = catById[prod.id_categoria];
+          showPrezzoSuggerito(null);
           if (cat && cat.codice === 'TUBOLARE') {
             // Prezzo dal listino tubolare attivo (non più dalla colonna fissa sul prodotto)
             const prezzo = prezzoTubolareMap[prod.id];
-            if (prezzo != null) {
-              inputPrezzo.value = prezzo;
-              showListinoHint(listinoTubolareAttivo?.nome);
-            }
+            if (prezzo != null)
+              showPrezzoSuggerito(prezzo, listinoTubolareAttivo?.nome ? `(da ${listinoTubolareAttivo.nome})` : null);
           } else if (prod.prezzo_riferimento) {
-            // Auto-fill prezzo: Mercantile/Travi listino in €/ton → convert to €/kg
+            // Prezzo di listino: Mercantile/Travi in €/ton → convertito in €/kg
+            let prezzoRif;
             if (cat && (cat.codice === 'MERCANTILE' || cat.codice === 'TRAVI')) {
               const base = cat.codice === 'TRAVI'
                 ? Number(cat[`base_cat_${prod.categoria_trave}`] ?? 0)
                 : Number(cat.parametro_prezzo ?? 0);
-              inputPrezzo.value = ((Number(prod.prezzo_riferimento) + base) / 1000).toFixed(4);
+              prezzoRif = ((Number(prod.prezzo_riferimento) + base) / 1000).toFixed(4);
             } else {
-              inputPrezzo.value = prod.prezzo_riferimento;
+              prezzoRif = prod.prezzo_riferimento;
             }
+            showPrezzoSuggerito(prezzoRif, null);
           }
           // Auto-fill qualità dal prodotto (se non già impostata)
           if (inputQualita && prod.qualita_acciaio && !inputQualita.value)

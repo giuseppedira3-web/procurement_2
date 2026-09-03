@@ -1,5 +1,6 @@
 import { renderDashboard }    from './pages/dashboard.js';
 import { renderPrezzi }       from './pages/prezzi.js';
+import { renderCbam }         from './pages/cbam.js';
 import { renderFornitori }    from './pages/fornitori.js';
 import { renderCategorie }    from './pages/categorie.js';
 import { renderProdotti }     from './pages/prodotti.js';
@@ -17,6 +18,7 @@ import { api, getUtente, setUtente, getDitta, setDitta } from './api.js';
 const ROUTES = {
   '/':           { title: 'Dashboard',        render: renderDashboard },
   '/prezzi':     { title: 'Prezzi',           render: renderPrezzi },
+  '/cbam':       { title: 'CBAM',             render: renderCbam },
   '/fornitori':  { title: 'Fornitori',        render: renderFornitori },
   '/categorie':  { title: 'Categorie Prodotto', render: renderCategorie },
   '/prodotti':   { title: 'Prodotti',         render: renderProdotti },
@@ -71,6 +73,7 @@ function applicaUtente() {
   box.classList.toggle('d-flex', !!u);
   document.getElementById('nav-admin').classList.toggle('d-none', !u || u.ruolo !== 'admin');
   document.getElementById('nav-prezzi').classList.toggle('d-none', !u || u.ruolo !== 'admin');
+  document.getElementById('nav-cbam').classList.toggle('d-none', !u || u.ruolo !== 'admin');
   if (u) {
     document.getElementById('utente-nome').textContent = u.nome_completo || u.username;
     document.getElementById('utente-ruolo').textContent = u.ruolo;

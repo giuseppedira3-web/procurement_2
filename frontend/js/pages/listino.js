@@ -65,6 +65,8 @@ function renderListinoProdotti(container, { prodotti, categorie, conversioni, li
       renderTubolare(pane, { cat, prodotti, conversioni, listini: listiniTubolare });
     } else if (cat.codice === 'TRAVI') {
       renderTravi(pane, { cat, prodotti });
+    } else if (cat.codice === 'LAMIERA') {
+      renderLamiera(pane, { cat, prodotti });
     } else if (['MERCANTILE', 'RETI', 'GRIGLIATI'].includes(cat.codice)) {
       renderExtraBase(pane, { cat, prodotti });
     } else {
@@ -495,6 +497,120 @@ function renderTravi(container, { cat, prodotti }) {
       },
     });
   }
+
+  refresh();
+}
+
+// --- LAMIERA: 3 basi (Nera/Decapata/Zincata) — si applicano solo alle -------
+// --- lamiere con tipologia impostata; le altre restano fuori dal calcolo. --
+
+const BASE_FIELD_TIPOLOGIA = { Nera: 'base_nera', Decapata: 'base_decapata', Zincata: 'base_zincata' };
+const TIPOLOGIA_BADGE = { Nera: 'dark', Decapata: 'warning', Zincata: 'secondary' };
+
+// Extra per larghezza non standard (1000/2000mm): 1250/1500 restano a extra 0.
+const EXTRA_LARGHEZZA_FIELD = {
+  1000: { Nera: 'extra_l1000_nera', Decapata: 'extra_l1000_decapata', Zincata: 'extra_l1000_zincata' },
+  2000: { Nera: 'extra_l2000_nera', Decapata: 'extra_l2000_decapata', Zincata: 'extra_l2000_zincata' },
+};
+
+function renderLamiera(container, { cat, prodotti }) {
+  const prodottiCat = prodotti.filter(p => p.id_categoria === cat.id);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'table-card';
+  wrap.innerHTML = `
+    <div class="table-toolbar flex-wrap gap-2">
+      ${Object.entries(BASE_FIELD_TIPOLOGIA).map(([tip, campo]) => `
+        <label class="small text-muted mb-0 me-1">Base ${tip}</label>
+        <div class="input-group input-group-sm" style="max-width:150px">
+          <input type="number" step="0.01" class="form-control" data-base="${tip}"
+            value="${cat[campo] != null ? Number(cat[campo]) : ''}">
+          <span class="input-group-text">€/ton</span>
+        </div>`).join('')}
+      <span class="ms-auto text-muted small me-2" data-count></span>
+      ${EXPORT_BTN}
+    </div>
+    <div class="table-toolbar flex-wrap gap-2">
+      <label class="small text-muted mb-0 me-1">Extra larghezza non standard</label>
+      ${Object.entries(EXTRA_LARGHEZZA_FIELD).flatMap(([larg, perTip]) => Object.entries(perTip).map(([tip, campo]) => `
+        <div class="input-group input-group-sm" style="max-width:150px" title="Extra ${larg}mm — ${tip}">
+          <span class="input-group-text">${larg} ${tip.slice(0, 1)}</span>
+          <input type="number" step="0.01" class="form-control" data-extra-larghezza="${campo}"
+            value="${cat[campo] != null ? Number(cat[campo]) : ''}">
+          <span class="input-group-text">€/ton</span>
+        </div>`)).join('')}
+    </div>
+    <div class="tbl-body"></div>`;
+  container.innerHTML = '';
+  container.appendChild(wrap);
+
+  const columns = [
+    { key: 'codice_prodotto', label: 'Codice' },
+    { key: 'descrizione',     label: 'Descrizione' },
+    { key: '_tipologia',      label: 'Tipologia',
+      fmt: v => `<span class="badge bg-${TIPOLOGIA_BADGE[v] || 'secondary'}${v === 'Decapata' ? ' text-dark' : ''}">${v}</span>` },
+    { key: 'spessore_mm',     label: 'Spessore (mm)', class: 'text-end',
+      fmt: v => v != null ? Number(v).toLocaleString('it-IT') : '<span class="text-muted">—</span>' },
+    { key: 'larghezza_mm',    label: 'Larghezza (mm)', class: 'text-end',
+      fmt: v => v != null ? Number(v).toLocaleString('it-IT') : '<span class="text-muted">—</span>' },
+    { key: '_base',           label: 'Base (€/ton)', fmt: v => v != null ? fmt(v, 'currency') : '<span class="text-muted">n.d.</span>' },
+    { key: '_extraLarghezza', label: 'Extra Larghezza (€/ton)', fmt: v => v ? fmt(v, 'currency') : '<span class="text-muted">—</span>' },
+  ];
+
+  function extraLarghezzaOf(p) {
+    const campo = EXTRA_LARGHEZZA_FIELD[Number(p.larghezza_mm)]?.[p.tipologia_lamiera];
+    if (!campo || cat[campo] == null) return 0;
+    return Number(cat[campo]);
+  }
+
+  function buildRows() {
+    // Solo le lamiere categorizzate: senza tipologia non si sa quale base usare.
+    return prodottiCat
+      .filter(p => p.tipologia_lamiera)
+      .map(p => {
+        const campoBase = BASE_FIELD_TIPOLOGIA[p.tipologia_lamiera];
+        const base = cat[campoBase];
+        return { ...p, _tipologia: p.tipologia_lamiera, _base: base != null ? Number(base) : null, _extraLarghezza: extraLarghezzaOf(p) };
+      });
+  }
+
+  function refresh() {
+    const rows = buildRows();
+    wrap.querySelector('[data-count]').textContent = `${rows.length}/${prodottiCat.length} categorizzate`;
+    renderTable(wrap.querySelector('.tbl-body'), {
+      columns, rows,
+      emptyMsg: 'Nessuna lamiera con tipologia impostata (Nera/Decapata/Zincata) — assegnala da Prodotti',
+    });
+  }
+
+  Object.keys(BASE_FIELD_TIPOLOGIA).forEach(tip => {
+    wrap.querySelector(`[data-base="${tip}"]`).addEventListener('change', async e => {
+      const val = e.target.value === '' ? null : Number(e.target.value);
+      const campo = BASE_FIELD_TIPOLOGIA[tip];
+      try {
+        const updated = await api.categorie.update(cat.id, { [campo]: val ?? 0 });
+        cat[campo] = updated[campo];
+        toast(`Base ${tip} aggiornata`);
+        refresh();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+
+  wrap.querySelectorAll('[data-extra-larghezza]').forEach(input => {
+    input.addEventListener('change', async e => {
+      const campo = input.dataset.extraLarghezza;
+      const val = e.target.value === '' ? null : Number(e.target.value);
+      try {
+        const updated = await api.categorie.update(cat.id, { [campo]: val ?? 0 });
+        cat[campo] = updated[campo];
+        toast('Extra larghezza aggiornato');
+        refresh();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+
+  wrap.querySelector('[data-action="export"]').onclick = () =>
+    downloadCsv('listino_LAMIERA.csv', columns, buildRows());
 
   refresh();
 }

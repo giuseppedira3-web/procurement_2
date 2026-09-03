@@ -230,6 +230,13 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
     ordine = await conn.fetchval("SELECT id FROM ordini WHERE id = $1", id)
     if not ordine:
         raise HTTPException(404, "Ordine non trovato")
+    if body.id_prodotto is not None:
+        cat_codice = await conn.fetchval(
+            "SELECT cp.codice FROM prodotti p JOIN categorie_prodotto cp ON cp.id = p.id_categoria WHERE p.id = $1",
+            body.id_prodotto,
+        )
+        if cat_codice == "TUBOLARE" and "sconto_percentuale" not in body.model_fields_set:
+            raise HTTPException(422, "Sc.1% obbligatorio per i prodotti TUBOLARE")
     importo = _calcola_importo(
         body.quantita_ordinata, body.prezzo_unitario,
         body.sconto_percentuale, body.sconto_2_percentuale,

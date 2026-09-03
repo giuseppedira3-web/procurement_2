@@ -561,17 +561,30 @@ function readForm(fields) {
 
 function validateForm(fields, data) {
   const form = document.getElementById('modal-body');
-  let valid = true;
   form.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
+  form.querySelectorAll('.field-required-feedback').forEach(el => el.remove());
+  const missing = [];
+  let firstInvalidEl = null;
   for (const f of fields) {
     if (f.required && (data[f.name] === null || data[f.name] === '')) {
       const el = form.querySelector(`[name="${f.name}"]`);
-      if (el) el.classList.add('is-invalid');
-      valid = false;
+      if (el) {
+        el.classList.add('is-invalid');
+        const fb = document.createElement('div');
+        fb.className = 'invalid-feedback field-required-feedback d-block';
+        fb.textContent = 'Campo obbligatorio';
+        el.after(fb);
+        if (!firstInvalidEl) firstInvalidEl = el;
+      }
+      missing.push(f.label || f.name);
     }
   }
-  if (!valid) toast('Compilare i campi obbligatori', 'warning');
-  return valid;
+  if (missing.length) {
+    toast(`Campo obbligatorio mancante: ${missing.join(', ')}`, 'warning');
+    firstInvalidEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    firstInvalidEl?.focus();
+  }
+  return missing.length === 0;
 }
 
 // ---------------------------------------------------------------------------
