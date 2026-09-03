@@ -174,15 +174,42 @@ async def update_ordine(id: int, body: OrdineUpdate, conn: asyncpg.Connection = 
     if not updates:
         raise HTTPException(400, "Nessun campo da aggiornare")
     sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(updates))
-    try:
-        row = await conn.fetchrow(
-            f"UPDATE ordini SET {sets} WHERE id = $1 RETURNING *",
-            id, *updates.values(),
-        )
-    except asyncpg.CheckViolationError as e:
-        raise HTTPException(422, detail=str(e))
-    if not row:
-        raise HTTPException(404)
+    async with conn.transaction():
+        try:
+            row = await conn.fetchrow(
+                f"UPDATE ordini SET {sets} WHERE id = $1 RETURNING *",
+                id, *updates.values(),
+            )
+        except asyncpg.CheckViolationError as e:
+            raise HTTPException(422, detail=str(e))
+        if not row:
+            raise HTTPException(404)
+        # CBAM: la tariffa è impostata una volta in testata (spesso una stima
+        # iniziale) e finché non si tocca la riga resta agganciata al valore
+        # di testata — se qui cambia tariffa o flag, ripropaga a tutte le
+        # righe e ricalcola l'importo, invece di lasciarle congelate al
+        # vecchio snapshot.
+        if "prezzo_cbam_kg" in updates or "cbam" in updates:
+            nuovo_cbam = row["prezzo_cbam_kg"] if row["cbam"] else None
+            await conn.execute(
+                "UPDATE ordini_righe SET prezzo_cbam_kg = $1 WHERE id_ordine = $2",
+                nuovo_cbam, id,
+            )
+            await conn.execute(
+                """
+                UPDATE ordini_righe SET importo_riga = ROUND(
+                    quantita_ordinata * prezzo_unitario
+                      * (1 + COALESCE(sconto_percentuale,0)/100)
+                      * (1 + COALESCE(sconto_2_percentuale,0)/100)
+                      * (1 + COALESCE(sconto_3_percentuale,0)/100)
+                      * (1 + COALESCE(sconto_4_percentuale,0)/100)
+                    + quantita_ordinata * COALESCE(prezzo_zincatura,0)
+                    + quantita_ordinata * COALESCE(prezzo_cbam_kg,0)
+                , 2)
+                WHERE id_ordine = $1
+                """,
+                id,
+            )
     return dict(row)
 
 
