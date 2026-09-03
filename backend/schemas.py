@@ -527,6 +527,11 @@ class OrdineRigaUpdate(BaseModel):
 class OrdineRigaResponse(OrdineRigaCreate):
     id: int
     id_ordine: int
+    # Righe create prima che qualita_acciaio diventasse obbligatoria in
+    # OrdineRigaCreate sono rimaste con il valore NULL: qui si sovrascrive
+    # il tipo e si azzera il validator ereditato per non far fallire la
+    # serializzazione (500) quando si leggono quelle righe legacy.
+    qualita_acciaio: str | None = None
     importo_riga: Decimal
     quantita_consegnata: Decimal
     quantita_fatturata: Decimal
@@ -535,6 +540,11 @@ class OrdineRigaResponse(OrdineRigaCreate):
     updated_at: datetime
     costo_trasporto_tot: Decimal | None = None
     prezzo_trasporto_kg: Decimal | None = None
+
+    @field_validator("qualita_acciaio")
+    @classmethod
+    def check_qualita_acciaio(cls, v):
+        return v
 
 
 class OrdineConRighe(OrdineResponse):
