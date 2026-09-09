@@ -1,9 +1,11 @@
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, field_validator, model_validator
 
 Ditta = Literal['ditta1', 'ditta2']
+HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +118,54 @@ class CategoriaUpdate(BaseModel):
 class CategoriaResponse(CategoriaCreate):
     id: int
     created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# QUALITA' ACCIAIO
+# ---------------------------------------------------------------------------
+
+class QualitaAcciaioCreate(BaseModel):
+    nome: str
+    colore: str = "#6c757d"
+
+    @field_validator("nome")
+    @classmethod
+    def check_nome(cls, v):
+        if not v or not v.strip():
+            raise ValueError("Nome obbligatorio")
+        return v.strip()
+
+    @field_validator("colore")
+    @classmethod
+    def check_colore(cls, v):
+        if not v or not HEX_COLOR_RE.match(v):
+            raise ValueError("Colore deve essere un hex #rrggbb")
+        return v.lower()
+
+
+class QualitaAcciaioUpdate(BaseModel):
+    nome: str
+    colore: str
+
+    @field_validator("nome")
+    @classmethod
+    def check_nome(cls, v):
+        if not v or not v.strip():
+            raise ValueError("Nome obbligatorio")
+        return v.strip()
+
+    @field_validator("colore")
+    @classmethod
+    def check_colore(cls, v):
+        if not v or not HEX_COLOR_RE.match(v):
+            raise ValueError("Colore deve essere un hex #rrggbb")
+        return v.lower()
+
+
+class QualitaAcciaioResponse(QualitaAcciaioCreate):
+    id: int
+    created_at: datetime
+    updated_at: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +480,8 @@ class OrdineCreate(BaseModel):
     id_zincheria: int | None = None
     cbam: bool = False
     prezzo_cbam_kg: Decimal | None = None
+    coperto: bool = False
+    sconto_coperto_kg: Decimal | None = None
     ditta: Ditta
     note: str | None = None
 
@@ -449,6 +501,8 @@ class OrdineUpdate(BaseModel):
     id_zincheria: int | None = None
     cbam: bool | None = None
     prezzo_cbam_kg: Decimal | None = None
+    coperto: bool | None = None
+    sconto_coperto_kg: Decimal | None = None
     ditta: Ditta | None = None
     note: str | None = None
 
@@ -484,6 +538,7 @@ class OrdineRigaCreate(BaseModel):
     id_listino_zincatura: int | None = None
     prezzo_zincatura: Decimal | None = None
     prezzo_cbam_kg: Decimal | None = None
+    sconto_coperto_kg: Decimal | None = None
     data_consegna_prevista: date | None = None
     note: str | None = None
 
@@ -520,6 +575,7 @@ class OrdineRigaUpdate(BaseModel):
     id_listino_zincatura: int | None = None
     prezzo_zincatura: Decimal | None = None
     prezzo_cbam_kg: Decimal | None = None
+    sconto_coperto_kg: Decimal | None = None
     data_consegna_prevista: date | None = None
     note: str | None = None
 

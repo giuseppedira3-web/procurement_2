@@ -71,6 +71,12 @@ export function countLabel(count, limit, label, checkCount = count) {
   </span>`;
 }
 
+// Fallback usato solo quando non è disponibile la mappa colori dal backend
+// (tab Qualità in Anagrafica, db/029: ogni qualità ha ormai un colore
+// esadecimale esplicito, scelto liberamente con un color picker). Le pagine
+// che mostrano il badge caricano l'elenco qualità e passano qui il colore
+// reale; questa mappa/hash serve solo come rete di sicurezza per valori
+// storici che non trovano corrispondenza in anagrafica.
 const QUALITA_COLORS = {
   'S235JRH':   'primary',
   'DX51D':     'secondary',
@@ -84,13 +90,24 @@ const QUALITA_COLORS = {
   'DC01':      'dark',
   'N.a.':      'light',
   'Libero':    'secondary',
+  'S355JOWPH - CORTEN': '#a0522d',
 };
+const QUALITA_PALETTE = ['primary','success','warning','danger','info','dark','secondary','#6f42c1','#fd7e14','#a0522d'];
 
-export const QUALITA_ACCIAIO = ['','S235JRH','DX51D','S275JRH','S275J0H','S275J2H','S355J0H','S355J2H','S280GD+Z','DD11','DC01','N.a.','Libero'];
+function coloreQualita(v) {
+  if (QUALITA_COLORS[v]) return QUALITA_COLORS[v];
+  let hash = 0;
+  for (let i = 0; i < v.length; i++) hash = (hash * 31 + v.charCodeAt(i)) >>> 0;
+  return QUALITA_PALETTE[hash % QUALITA_PALETTE.length];
+}
 
-export function qualitaBadge(v) {
+// colorMap: { nomeQualita: '#rrggbb' } dall'anagrafica Qualità (db/029). Se
+// il valore non c'è nella mappa (dato non ancora caricato, o valore storico
+// fuori anagrafica), si ricade sul colore calcolato lato client.
+export function qualitaBadge(v, colorMap = {}) {
   if (!v) return '<span class="text-muted">—</span>';
-  const color = QUALITA_COLORS[v] ?? 'secondary';
+  if (colorMap[v]) return `<span class="badge" style="background:${colorMap[v]}">${v}</span>`;
+  const color = coloreQualita(v);
   // Colore esadecimale personalizzato → stile inline; altrimenti classe Bootstrap
   if (color.startsWith('#')) return `<span class="badge" style="background:${color}">${v}</span>`;
   const textClass = color === 'light' ? ' text-dark' : '';

@@ -89,6 +89,9 @@ export const api = {
   magazzini:   { listByFornitore: id => req('GET', `/fornitori/${id}/magazzini/`), create: (id,b) => req('POST', `/fornitori/${id}/magazzini/`, b), update: (id,mid,b) => req('PATCH', `/fornitori/${id}/magazzini/${mid}`, b), del: (id,mid) => req('DELETE', `/fornitori/${id}/magazzini/${mid}`) },
   vettori:     { list: (p='') => req('GET', `/vettori/${p}`), get: id => req('GET', `/vettori/${id}`), create: b => req('POST', '/vettori/', b), update: (id,b) => req('PATCH', `/vettori/${id}`, b), del: id => req('DELETE', `/vettori/${id}`) },
   categorie:   { list: (p='') => req('GET', `/categorie/${p}`), get: id => req('GET', `/categorie/${id}`), create: b => req('POST', '/categorie/', b), update: (id,b) => req('PATCH', `/categorie/${id}`, b), del: id => req('DELETE', `/categorie/${id}`) },
+  // Niente del: rimuovere una qualità in uso romperebbe i riferimenti testuali
+  // esistenti su prodotti/righe ordine — solo lista, creazione, rinomina.
+  qualita:     { list: (p='') => req('GET', `/qualita-acciaio/${p}`), create: b => req('POST', '/qualita-acciaio/', b), update: (id,b) => req('PATCH', `/qualita-acciaio/${id}`, b) },
   prodotti:    { list: (p='') => req('GET', `/prodotti/${p}`), get: id => req('GET', `/prodotti/${id}`), create: b => req('POST', '/prodotti/', b), update: (id,b) => req('PATCH', `/prodotti/${id}`, b), del: id => req('DELETE', `/prodotti/${id}`),
                  importFile: file => upload('/prodotti/import', file), templateUrl: '/prodotti/import/template', exportUrl: '/prodotti/export',
                  importPrezzoRiferimento: (idCategoria, file, campoPrezzoImport = 'prezzo_riferimento', idListino = null) => upload(`/prodotti/import-prezzo-riferimento?id_categoria=${idCategoria}&campo_prezzo=${campoPrezzoImport}${idListino != null ? `&id_listino=${idListino}` : ''}`, file),
@@ -121,5 +124,7 @@ export const api = {
     tubolareMensile: ({ mesi = 12, ditta } = {}) =>
       req('GET', `/dashboard/tubolare-mensile?mesi=${mesi}${ditta ? '&ditta=' + ditta : ''}`),
     cbamOrdini:        () => req('GET', withDitta('/dashboard/cbam-ordini')),
+    materialeInArrivo: ({ categoria = 'MERCANTILE', ditta } = {}) =>
+      req('GET', `/dashboard/materiale-in-arrivo?categoria=${categoria}${ditta ? '&ditta=' + ditta : ''}`),
   },
 };

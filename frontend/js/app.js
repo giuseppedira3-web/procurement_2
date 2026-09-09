@@ -1,8 +1,10 @@
 import { renderDashboard }    from './pages/dashboard.js';
 import { renderPrezzi }       from './pages/prezzi.js';
 import { renderCbam }         from './pages/cbam.js';
+import { renderMaterialeArrivo } from './pages/materiale-arrivo.js';
 import { renderFornitori }    from './pages/fornitori.js';
 import { renderCategorie }    from './pages/categorie.js';
+import { renderQualita }      from './pages/qualita.js';
 import { renderProdotti }     from './pages/prodotti.js';
 import { renderConversioni }  from './pages/conversioni.js';
 import { renderListino }      from './pages/listino.js';
@@ -19,8 +21,10 @@ const ROUTES = {
   '/':           { title: 'Dashboard',        render: renderDashboard },
   '/prezzi':     { title: 'Prezzi',           render: renderPrezzi },
   '/cbam':       { title: 'CBAM',             render: renderCbam },
+  '/materiale-in-arrivo': { title: 'Materiale in Arrivo', render: renderMaterialeArrivo },
   '/fornitori':  { title: 'Fornitori',        render: renderFornitori },
   '/categorie':  { title: 'Categorie Prodotto', render: renderCategorie },
+  '/qualita':    { title: 'Qualità Acciaio',   render: renderQualita },
   '/prodotti':   { title: 'Prodotti',         render: renderProdotti },
   '/conversioni':{ title: 'Conversioni Peso', render: renderConversioni },
   '/listino':    { title: 'Listino Prezzi',   render: renderListino },
@@ -74,6 +78,7 @@ function applicaUtente() {
   document.getElementById('nav-admin').classList.toggle('d-none', !u || u.ruolo !== 'admin');
   document.getElementById('nav-prezzi').classList.toggle('d-none', !u || u.ruolo !== 'admin');
   document.getElementById('nav-cbam').classList.toggle('d-none', !u || u.ruolo !== 'admin');
+  document.getElementById('nav-materiale-arrivo').classList.toggle('d-none', !u || u.ruolo !== 'admin');
   if (u) {
     document.getElementById('utente-nome').textContent = u.nome_completo || u.username;
     document.getElementById('utente-ruolo').textContent = u.ruolo;

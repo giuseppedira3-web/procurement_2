@@ -79,15 +79,17 @@ async def create_ordine(body: OrdineCreate, conn: asyncpg.Connection = Depends(g
                     riferimento_fornitore, data_ordine, data_consegna_prevista,
                     luogo_consegna, incoterm, valuta, stato,
                     id_magazzino_origine, comune_destinazione, id_vettore,
-                    zincatura, id_zincheria, cbam, prezzo_cbam_kg, ditta, note
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+                    zincatura, id_zincheria, cbam, prezzo_cbam_kg,
+                    coperto, sconto_coperto_kg, ditta, note
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
                 RETURNING *
                 """,
                 codice, body.id_fornitore, numero, anno,
                 body.riferimento_fornitore, body.data_ordine, body.data_consegna_prevista,
                 body.luogo_consegna, body.incoterm, body.valuta, body.stato,
                 body.id_magazzino_origine, body.comune_destinazione, body.id_vettore,
-                body.zincatura, body.id_zincheria, body.cbam, body.prezzo_cbam_kg, body.ditta, body.note,
+                body.zincatura, body.id_zincheria, body.cbam, body.prezzo_cbam_kg,
+                body.coperto, body.sconto_coperto_kg, body.ditta, body.note,
             )
         except asyncpg.ForeignKeyViolationError as e:
             raise HTTPException(422, detail=str(e))
@@ -121,7 +123,7 @@ async def list_all_righe(
             r.quantita_ordinata, r.unita_misura, r.quantita_kg,
             r.prezzo_unitario, r.importo_riga,
             r.sconto_percentuale, r.sconto_2_percentuale, r.sconto_3_percentuale, r.sconto_4_percentuale,
-            r.prezzo_zincatura, r.prezzo_cbam_kg,
+            r.prezzo_zincatura, r.prezzo_cbam_kg, r.sconto_coperto_kg,
             t.prezzo_trasporto_kg,
             r.quantita_consegnata, r.quantita_fatturata, r.stato_riga,
             r.qualita_acciaio, r.lunghezza_mm,
@@ -184,17 +186,24 @@ async def update_ordine(id: int, body: OrdineUpdate, conn: asyncpg.Connection = 
             raise HTTPException(422, detail=str(e))
         if not row:
             raise HTTPException(404)
-        # CBAM: la tariffa è impostata una volta in testata (spesso una stima
-        # iniziale) e finché non si tocca la riga resta agganciata al valore
-        # di testata — se qui cambia tariffa o flag, ripropaga a tutte le
-        # righe e ricalcola l'importo, invece di lasciarle congelate al
-        # vecchio snapshot.
-        if "prezzo_cbam_kg" in updates or "cbam" in updates:
-            nuovo_cbam = row["prezzo_cbam_kg"] if row["cbam"] else None
-            await conn.execute(
-                "UPDATE ordini_righe SET prezzo_cbam_kg = $1 WHERE id_ordine = $2",
-                nuovo_cbam, id,
-            )
+        # CBAM/Coperto: la tariffa è impostata una volta in testata (spesso
+        # una stima iniziale) e finché non si tocca la riga resta agganciata
+        # al valore di testata — se qui cambia tariffa/sconto o flag,
+        # ripropaga a tutte le righe e ricalcola l'importo, invece di
+        # lasciarle congelate al vecchio snapshot.
+        if any(k in updates for k in ("prezzo_cbam_kg", "cbam", "sconto_coperto_kg", "coperto")):
+            if "prezzo_cbam_kg" in updates or "cbam" in updates:
+                nuovo_cbam = row["prezzo_cbam_kg"] if row["cbam"] else None
+                await conn.execute(
+                    "UPDATE ordini_righe SET prezzo_cbam_kg = $1 WHERE id_ordine = $2",
+                    nuovo_cbam, id,
+                )
+            if "sconto_coperto_kg" in updates or "coperto" in updates:
+                nuovo_coperto = row["sconto_coperto_kg"] if row["coperto"] else None
+                await conn.execute(
+                    "UPDATE ordini_righe SET sconto_coperto_kg = $1 WHERE id_ordine = $2",
+                    nuovo_coperto, id,
+                )
             await conn.execute(
                 """
                 UPDATE ordini_righe SET importo_riga = ROUND(
@@ -205,6 +214,7 @@ async def update_ordine(id: int, body: OrdineUpdate, conn: asyncpg.Connection = 
                       * (1 + COALESCE(sconto_4_percentuale,0)/100)
                     + quantita_ordinata * COALESCE(prezzo_zincatura,0)
                     + quantita_ordinata * COALESCE(prezzo_cbam_kg,0)
+                    + quantita_ordinata * COALESCE(sconto_coperto_kg,0)
                 , 2)
                 WHERE id_ordine = $1
                 """,
@@ -226,7 +236,8 @@ async def delete_ordine(id: int, conn: asyncpg.Connection = Depends(get_conn)):
 
 def _calcola_importo(qta: Decimal, prezzo: Decimal, *sconti: Decimal,
                      prezzo_zincatura: Decimal | None = None,
-                     prezzo_cbam_kg: Decimal | None = None) -> Decimal:
+                     prezzo_cbam_kg: Decimal | None = None,
+                     sconto_coperto_kg: Decimal | None = None) -> Decimal:
     result = qta * prezzo
     for s in sconti:
         result *= (1 + s / 100)
@@ -234,6 +245,8 @@ def _calcola_importo(qta: Decimal, prezzo: Decimal, *sconti: Decimal,
         result += qta * prezzo_zincatura
     if prezzo_cbam_kg:
         result += qta * prezzo_cbam_kg
+    if sconto_coperto_kg:
+        result += qta * sconto_coperto_kg
     return result.quantize(Decimal("0.01"))
 
 
@@ -270,6 +283,7 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
         body.sconto_3_percentuale, body.sconto_4_percentuale,
         prezzo_zincatura=body.prezzo_zincatura,
         prezzo_cbam_kg=body.prezzo_cbam_kg,
+        sconto_coperto_kg=body.sconto_coperto_kg,
     )
     try:
         row = await conn.fetchrow(
@@ -281,9 +295,9 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
                 sconto_percentuale, sconto_2_percentuale, sconto_3_percentuale, sconto_4_percentuale,
                 importo_riga, tolleranza_chiusura_kg,
                 qualita_acciaio, lunghezza_mm,
-                id_listino_zincatura, prezzo_zincatura, prezzo_cbam_kg,
+                id_listino_zincatura, prezzo_zincatura, prezzo_cbam_kg, sconto_coperto_kg,
                 data_consegna_prevista, note
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
             RETURNING *
             """,
             id, body.numero_riga, body.id_prodotto, body.descrizione_libera,
@@ -293,7 +307,7 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
             body.sconto_3_percentuale, body.sconto_4_percentuale,
             importo, body.tolleranza_chiusura_kg,
             body.qualita_acciaio, body.lunghezza_mm,
-            body.id_listino_zincatura, body.prezzo_zincatura, body.prezzo_cbam_kg,
+            body.id_listino_zincatura, body.prezzo_zincatura, body.prezzo_cbam_kg, body.sconto_coperto_kg,
             body.data_consegna_prevista, body.note,
         )
     except asyncpg.UniqueViolationError:
@@ -327,7 +341,12 @@ async def update_riga_ordine(
     pz     = Decimal(str(pz_raw)) if pz_raw is not None else None
     cbam_raw = updates.get("prezzo_cbam_kg", row["prezzo_cbam_kg"])
     cbam_kg  = Decimal(str(cbam_raw)) if cbam_raw is not None else None
-    updates["importo_riga"] = _calcola_importo(qta, prezzo, s1, s2, s3, s4, prezzo_zincatura=pz, prezzo_cbam_kg=cbam_kg)
+    coperto_raw = updates.get("sconto_coperto_kg", row["sconto_coperto_kg"])
+    coperto_kg  = Decimal(str(coperto_raw)) if coperto_raw is not None else None
+    updates["importo_riga"] = _calcola_importo(
+        qta, prezzo, s1, s2, s3, s4,
+        prezzo_zincatura=pz, prezzo_cbam_kg=cbam_kg, sconto_coperto_kg=coperto_kg,
+    )
     sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(updates))
     updated = await conn.fetchrow(
         f"UPDATE ordini_righe SET {sets} WHERE id = $1 RETURNING *",

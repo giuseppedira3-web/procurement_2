@@ -270,6 +270,59 @@ async def tubolare_mensile(
     return [dict(r) for r in rows]
 
 
+@router.get("/materiale-in-arrivo")
+async def materiale_in_arrivo(
+    categoria: str = Query(..., pattern="^(LAMIERA|MERCANTILE|TRAVI|TUBOLARE)$"),
+    ditta: str | None = None,
+    admin: dict = Depends(require_admin),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Righe ordine non ancora completamente consegnate (materiale in arrivo)
+    per la categoria core indicata, con quantità residua e prezzo netto
+    (importo riga + trasporto, al netto di sconti/zincatura/CBAM già inclusi
+    in importo_riga) per riga. L'aggregazione per prodotto è lasciata al
+    frontend. Esclude ordini annullati e righe annullate/complete. Solo
+    admin."""
+    filters, params = [
+        "cp.codice = $1",
+        "o.stato != 'annullato'",
+        "r.stato_riga IN ('aperta', 'parziale')",
+        "(r.quantita_ordinata - r.quantita_consegnata) > 0",
+    ], [categoria]
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"o.ditta = ${len(params)}")
+    where = "WHERE " + " AND ".join(filters)
+    rows = await conn.fetch(
+        f"""SELECT
+                p.id                                            AS id_prodotto,
+                p.codice_prodotto,
+                p.descrizione                                   AS descrizione_prodotto,
+                o.id                                             AS id_ordine,
+                o.codice_ordine,
+                o.data_ordine,
+                o.data_consegna_prevista,
+                f.ragione_sociale                                AS fornitore,
+                r.unita_misura,
+                (r.quantita_ordinata - r.quantita_consegnata)    AS quantita_residua,
+                CASE WHEN r.quantita_ordinata > 0 THEN
+                    r.quantita_kg * (r.quantita_ordinata - r.quantita_consegnata) / r.quantita_ordinata
+                END                                               AS quantita_residua_kg,
+                (r.importo_riga + COALESCE(r.quantita_kg, 0) * COALESCE(t.prezzo_trasporto_kg, 0))
+                    / NULLIF(r.quantita_ordinata, 0)              AS prezzo_netto_unitario
+            FROM ordini_righe r
+            JOIN ordini o ON o.id = r.id_ordine
+            JOIN prodotti p ON p.id = r.id_prodotto
+            JOIN categorie_prodotto cp ON cp.id = p.id_categoria
+            JOIN fornitori f ON f.id = o.id_fornitore
+            LEFT JOIN v_trasporto_righe_ordine t ON t.id_riga_ordine = r.id
+            {where}
+            ORDER BY p.codice_prodotto, o.data_ordine""",
+        *params,
+    )
+    return [dict(r) for r in rows]
+
+
 @router.get("/stato-ordini")
 async def stato_ordini(
     id_fornitore: int | None = None,

@@ -8,7 +8,8 @@ from config import DATABASE_URL
 from database import init_pool
 from routers import (
     allegati, auth, categorie, categorie_servizio, conversioni, dashboard,
-    ddt, fatture, fornitori, listini_tubolare, listino, listino_servizi, magazzini, ordini, prodotti, tickets, vettori,
+    ddt, fatture, fornitori, listini_tubolare, listino, listino_servizi, magazzini, ordini, prodotti,
+    qualita_acciaio, tickets, vettori,
 )
 
 
@@ -67,6 +68,7 @@ app.include_router(vettori.router)
 app.include_router(categorie.router)
 app.include_router(categorie_servizio.router)
 app.include_router(prodotti.router)
+app.include_router(qualita_acciaio.router)
 app.include_router(conversioni.router)
 app.include_router(listino.router)
 app.include_router(listino_servizi.router)

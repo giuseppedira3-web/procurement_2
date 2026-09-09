@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { fmt, toast, setHeaderActions, downloadCsv, QUALITA_ACCIAIO } from '../utils.js';
+import { fmt, toast, setHeaderActions, downloadCsv } from '../utils.js';
 import { renderTable, showFormModal, showImportModal, deleteWithConfirm } from '../components.js';
 
 const LIMIT = 10000;
@@ -41,8 +41,8 @@ const COLUMNS_LAMIERA = [
 ];
 
 export async function renderProdotti(container) {
-  const [rows, categorie] = await Promise.all([
-    api.prodotti.list(`?limit=${LIMIT}`), api.categorie.list(),
+  const [rows, categorie, qualita] = await Promise.all([
+    api.prodotti.list(`?limit=${LIMIT}`), api.categorie.list(), api.qualita.list(),
   ]);
 
   setHeaderActions(`
@@ -97,7 +97,7 @@ export async function renderProdotti(container) {
       options: categorieOrdinate.map(c => ({ value: c.id, label: c.codice })) },
     { name: 'norma',                 label: 'Norma EN',         type: 'text',   col: 4, placeholder: 'EN 10025' },
     { name: 'qualita_acciaio',       label: 'Qualità',          type: 'select', col: 4,
-      options: QUALITA_ACCIAIO.map(v => ({ value: v, label: v || '— non specificata —' })) },
+      options: [{ value: '', label: '— non specificata —' }, ...qualita.map(q => ({ value: q.nome, label: q.nome }))] },
     { name: 'spessore_mm',           label: 'Spessore (mm)',    type: 'decimal', col: 3 },
     { name: 'larghezza_mm',          label: 'Larghezza (mm)',   type: 'decimal', col: 3 },
     { name: 'lunghezza_mm',          label: 'Lunghezza (mm)',   type: 'decimal', col: 3, value: 6000 },

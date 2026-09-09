@@ -1,5 +1,5 @@
 import { api, getListinoTubolareId } from '../api.js';
-import { fmt, toast, setHeaderActions, setTitle, qualitaBadge, QUALITA_ACCIAIO, countLabel } from '../utils.js';
+import { fmt, toast, setHeaderActions, setTitle, qualitaBadge, countLabel } from '../utils.js';
 import { renderTable, showFormModal, deleteWithConfirm, attachAutocomplete } from '../components.js';
 
 
@@ -10,18 +10,19 @@ function fmtSconto(v) {
 }
 
 // Scomposizione del prezzo di riga: base scontata (sconti a catena 1-4) +
-// zincatura + trasporto + CBAM = netto. Unica fonte di verità per questo
-// calcolo, usata sia dalla vista Righe globale che dal dettaglio ordine.
+// zincatura + trasporto + CBAM + Coperto = netto. Unica fonte di verità per
+// questo calcolo, usata sia dalla vista Righe globale che dal dettaglio ordine.
 function calcolaPrezzi(r) {
   const s1 = Number(r.sconto_percentuale   || 0);
   const s2 = Number(r.sconto_2_percentuale || 0);
   const s3 = Number(r.sconto_3_percentuale || 0);
   const s4 = Number(r.sconto_4_percentuale || 0);
-  const zinc  = r.prezzo_zincatura    != null ? Number(r.prezzo_zincatura)    : 0;
-  const trasp = r.prezzo_trasporto_kg != null ? Number(r.prezzo_trasporto_kg) : 0;
-  const cbam  = r.prezzo_cbam_kg      != null ? Number(r.prezzo_cbam_kg)      : 0;
+  const zinc    = r.prezzo_zincatura    != null ? Number(r.prezzo_zincatura)    : 0;
+  const trasp   = r.prezzo_trasporto_kg != null ? Number(r.prezzo_trasporto_kg) : 0;
+  const cbam    = r.prezzo_cbam_kg      != null ? Number(r.prezzo_cbam_kg)      : 0;
+  const coperto = r.sconto_coperto_kg   != null ? Number(r.sconto_coperto_kg)   : 0;
   const base  = Number(r.prezzo_unitario) * (1+s1/100) * (1+s2/100) * (1+s3/100) * (1+s4/100);
-  return { s1, s2, s3, s4, base, zinc, trasp, cbam, netto: base + zinc + trasp + cbam };
+  return { s1, s2, s3, s4, base, zinc, trasp, cbam, coperto, netto: base + zinc + trasp + cbam + coperto };
 }
 
 // ---------------------------------------------------------------------------
@@ -64,8 +65,8 @@ function toggleFieldByCheckbox(body, chkName, fieldName) {
 export async function renderOrdini(container, id) {
   if (id) return renderDetail(container, id);
 
-  const [rows, fornitori, vettori] = await Promise.all([
-    api.ordini.list(`?limit=${LIST_LIMIT}`), api.fornitori.list(`?limit=${LIST_LIMIT}`), api.vettori.list(),
+  const [rows, fornitori, vettori, qualita] = await Promise.all([
+    api.ordini.list(`?limit=${LIST_LIMIT}`), api.fornitori.list(`?limit=${LIST_LIMIT}`), api.vettori.list(), api.qualita.list(),
   ]);
   // fornMap da tutti i fornitori (per la visualizzazione), ma gli ordini di
   // acciaio si fanno solo alle acciaierie → il dropdown propone solo quelle.
@@ -98,6 +99,8 @@ export async function renderOrdini(container, id) {
       options: zincherieOptions },
     { name: 'cbam',                   label: 'CBAM (fornitore estero)', type: 'checkbox', col: 3, value: false },
     { name: 'prezzo_cbam_kg',         label: 'Tariffa CBAM (€/kg)', type: 'decimal', col: 4, step: '0.000001' },
+    { name: 'coperto',                label: 'Coperto (sconto trasversale)', type: 'checkbox', col: 3, value: false },
+    { name: 'sconto_coperto_kg',      label: 'Sconto Coperto (€/kg)', type: 'decimal', col: 4, step: '0.000001', placeholder: 'es. -0.03' },
     { name: 'luogo_consegna',         label: 'Luogo Consegna',    type: 'text',   col: 12 },
     { name: 'note',                   label: 'Note',              type: 'textarea', col: 12 },
   ];
@@ -133,6 +136,7 @@ export async function renderOrdini(container, id) {
         });
         toggleFieldByCheckbox(body, 'zincatura', 'id_zincheria');
         toggleFieldByCheckbox(body, 'cbam', 'prezzo_cbam_kg');
+        toggleFieldByCheckbox(body, 'coperto', 'sconto_coperto_kg');
       },
       onSave: async data => {
         const ord = await api.ordini.create(data);
@@ -144,7 +148,7 @@ export async function renderOrdini(container, id) {
 
   if (_righeViewActive) {
     renderHeader();
-    return renderRigheView(container, fornitori, fornMap);
+    return renderRigheView(container, fornitori, fornMap, qualita);
   }
 
   renderHeader();
@@ -188,8 +192,9 @@ export async function renderOrdini(container, id) {
 // ---------------------------------------------------------------------------
 // RIGHE VIEW (flat view across all orders)
 // ---------------------------------------------------------------------------
-async function renderRigheView(container, fornitori, fornMap) {
+async function renderRigheView(container, fornitori, fornMap, qualita = []) {
   const righe = await api.ordini.listAllRighe();
+  const qualitaColorMap = Object.fromEntries(qualita.map(q => [q.nome, q.colore]));
 
   // Augment rows with computed + display fields
   const rows = righe.map(r => {
@@ -222,7 +227,7 @@ async function renderRigheView(container, fornitori, fornMap) {
     { key: '_fornitore',            label: 'Fornitore' },
     { key: '_prodotto',             label: 'Prodotto',
       fmt: (v, r) => r._prodottoCodice ? `${v}<br><small class="text-muted">${r._prodottoCodice}</small>` : v },
-    { key: 'qualita_acciaio',       label: 'Qualità',  fmt: v => qualitaBadge(v) },
+    { key: 'qualita_acciaio',       label: 'Qualità',  fmt: v => qualitaBadge(v, qualitaColorMap) },
     { key: 'lunghezza_mm',          label: 'Lung. mm', class: 'text-end', fmt: v => v ? Number(v).toLocaleString('it-IT') : '<span class="text-muted">—</span>' },
     { key: 'quantita_ordinata',     label: 'Ord.',     class: 'text-end', fmt: v => fmt(v, 'number') },
     { key: 'unita_misura',          label: 'U.M.',     fmt: v => `<code>${v}</code>` },
@@ -275,7 +280,7 @@ async function renderRigheView(container, fornitori, fornMap) {
 // ---------------------------------------------------------------------------
 async function renderDetail(container, id) {
   const ord = await api.ordini.get(id);
-  const [prodotti, conversioni, categorie, vettori, magFornitore, zincherie, zincVoci, listiniTubolare] = await Promise.all([
+  const [prodotti, conversioni, categorie, vettori, magFornitore, zincherie, zincVoci, listiniTubolare, qualita] = await Promise.all([
     api.prodotti.list('?limit=10000'), api.conversioni.list('?limit=10000'),
     api.categorie.list(), api.vettori.list(),
     api.magazzini.listByFornitore(ord.id_fornitore),
@@ -284,8 +289,10 @@ async function renderDetail(container, id) {
       ? api.listinoServizi.list(`?id_fornitore=${ord.id_zincheria}&limit=${LIST_LIMIT}`)
       : Promise.resolve([]),
     api.listiniTubolare.list(),
+    api.qualita.list(),
   ]);
   const catById = Object.fromEntries(categorie.map(c => [c.id, c]));
+  const qualitaColorMap = Object.fromEntries(qualita.map(q => [q.nome, q.colore]));
 
   // Prezzo TUBOLARE: sempre quello del listino attualmente selezionato nella
   // pagina Listino Prezzi (stesso sessionStorage), non una colonna fissa sul
@@ -308,7 +315,7 @@ async function renderDetail(container, id) {
   const prodMap = Object.fromEntries(prodotti.map(p => [p.id, { codice: p.codice_prodotto, desc: p.descrizione }]));
   const detailRows = ord.righe.map(r => {
     const prod = r.id_prodotto ? prodMap[r.id_prodotto] : null;
-    const { s1, s2, s3, s4, zinc, trasp, cbam, netto } = calcolaPrezzi(r);
+    const { s1, s2, s3, s4, zinc, trasp, cbam, coperto, netto } = calcolaPrezzi(r);
     return {
       ...r,
       _prodotto:      prod ? (prod.desc || prod.codice) : (r.descrizione_libera || '—'),
@@ -317,6 +324,7 @@ async function renderDetail(container, id) {
       _zinc: zinc || null,
       _trasp: trasp || null,
       _cbam: cbam || null,
+      _coperto: coperto || null,
       _prezzoNetto: netto,
     };
   });
@@ -326,7 +334,7 @@ async function renderDetail(container, id) {
     { key: 'numero_riga',         label: '#',          class: 'text-center' },
     { key: '_prodotto',           label: 'Prodotto',
       fmt: (v, r) => r._prodottoCodice ? `${v}<br><small class="text-muted">${r._prodottoCodice}</small>` : v },
-    { key: 'qualita_acciaio',     label: 'Qualità',    fmt: v => qualitaBadge(v) },
+    { key: 'qualita_acciaio',     label: 'Qualità',    fmt: v => qualitaBadge(v, qualitaColorMap) },
     { key: 'lunghezza_mm',        label: 'Lung. mm',   class: 'text-end',
       fmt: v => v ? Number(v).toLocaleString('it-IT') : '<span class="text-muted">—</span>' },
     { key: 'quantita_ordinata',   label: 'Q.tà Ord.',  class: 'text-end', fmt: v => fmt(v, 'number') },
@@ -342,6 +350,8 @@ async function renderDetail(container, id) {
       fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
     { key: '_cbam', label: 'CBAM', class: 'text-end', filterable: false,
       fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
+    { key: '_coperto', label: 'Coperto', class: 'text-end', filterable: false,
+      fmt: v => v ? `<span class="${v < 0 ? 'text-success' : 'text-primary'}">${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
     { key: '_prezzoNetto',        label: 'P.Netto',    class: 'text-end', filterable: false,
       fmt: v => `<strong>${fmt(v, 'number')}</strong>` },
     { key: 'importo_riga',        label: 'Importo',    class: 'text-end', fmt: v => fmt(v, 'currency') },
@@ -361,12 +371,13 @@ async function renderDetail(container, id) {
   const cols = DETAIL_COLS
     .filter(c => c.key !== '_zinc' || ord.zincatura)
     .filter(c => c.key !== '_trasp' || hasTrasporto)
-    .filter(c => c.key !== '_cbam' || ord.cbam);
+    .filter(c => c.key !== '_cbam' || ord.cbam)
+    .filter(c => c.key !== '_coperto' || ord.coperto);
   renderTable(righeWrap.querySelector('#righe-tbl'), {
     columns: cols,
     rows: detailRows,
     actions: {
-      onEdit:   (rid, row) => openRigaModal(rid, row, id, ord, prodotti, conversioni, catById, container, zincVoci, listinoTubolareAttivo, prezzoTubolareMap),
+      onEdit:   (rid, row) => openRigaModal(rid, row, id, ord, prodotti, conversioni, catById, container, zincVoci, listinoTubolareAttivo, prezzoTubolareMap, qualita),
       onDelete: (rid)      => deleteWithConfirm(`riga #${rid}`, () => api.ordini.righe.del(id, rid), () => renderDetail(container, id)),
     },
     emptyMsg: 'Nessuna riga',
@@ -391,6 +402,8 @@ async function renderDetail(container, id) {
       { name: 'id_zincheria',           label: 'Zincheria',      type: 'select', col: 5, options: zincOpts },
       { name: 'cbam',                   label: 'CBAM (fornitore estero)', type: 'checkbox', col: 3, value: ord.cbam },
       { name: 'prezzo_cbam_kg',         label: 'Tariffa CBAM (€/kg)', type: 'decimal', col: 4, step: '0.000001' },
+      { name: 'coperto',                label: 'Coperto (sconto trasversale)', type: 'checkbox', col: 3, value: ord.coperto },
+      { name: 'sconto_coperto_kg',      label: 'Sconto Coperto (€/kg)', type: 'decimal', col: 4, step: '0.000001', placeholder: 'es. -0.03' },
       { name: 'luogo_consegna',         label: 'Luogo Consegna', type: 'text',   col: 12 },
       { name: 'note',                   label: 'Note',           type: 'textarea', col: 12 },
     ];
@@ -399,13 +412,14 @@ async function renderDetail(container, id) {
       afterShow: body => {
         toggleFieldByCheckbox(body, 'zincatura', 'id_zincheria');
         toggleFieldByCheckbox(body, 'cbam', 'prezzo_cbam_kg');
+        toggleFieldByCheckbox(body, 'coperto', 'sconto_coperto_kg');
       },
       onSave: async data => { await api.ordini.update(id, data); toast('Ordine aggiornato'); renderDetail(container, id); },
     });
   };
 
   // Add riga
-  document.getElementById('btn-add-riga').onclick = () => openRigaModal(null, null, id, ord, prodotti, conversioni, catById, container, zincVoci, listinoTubolareAttivo, prezzoTubolareMap);
+  document.getElementById('btn-add-riga').onclick = () => openRigaModal(null, null, id, ord, prodotti, conversioni, catById, container, zincVoci, listinoTubolareAttivo, prezzoTubolareMap, qualita);
 
   // Stato via event delegation — sopravvive ai re-render di sort/filtro
   const STATI_RIGA = ['aperta','parziale','completa','annullata'];
@@ -449,6 +463,7 @@ function headerCard(ord) {
       ${dl('Vettore', ord.nome_vettore, 3)}
       ${ord.zincatura ? dl('Zincatura', `<span class="badge bg-primary">${ord.nome_zincheria || 'sì'}</span>`, 3) : ''}
       ${ord.cbam ? dl('CBAM', `<span class="badge bg-warning text-dark">${fmt(ord.prezzo_cbam_kg, 'number')} €/kg</span>`, 3) : ''}
+      ${ord.coperto ? dl('Coperto', `<span class="badge bg-success">${fmt(ord.sconto_coperto_kg, 'number')} €/kg</span>`, 3) : ''}
       ${dl('Luogo Consegna', ord.luogo_consegna, 3)}
       ${ord.note ? dl('Note', ord.note, 12) : ''}
     </div>
@@ -467,7 +482,7 @@ function zincVoceLabel(v) {
   return `${v.descrizione_voce || 'voce'}${range} — ${prezzo} €/${v.unita_misura_prezzo}`;
 }
 
-function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catById, container, zincVoci = [], listinoTubolareAttivo = null, prezzoTubolareMap = {}) {
+function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catById, container, zincVoci = [], listinoTubolareAttivo = null, prezzoTubolareMap = {}, qualita = []) {
   const nextNum = rigaId ? riga.numero_riga : (Math.max(0, ...ord.righe.map(r => r.numero_riga)) + 1);
   const prodByCode = Object.fromEntries(prodotti.map(p => [p.codice_prodotto.toUpperCase(), p]));
   const prodById   = Object.fromEntries(prodotti.map(p => [p.id, p]));
@@ -499,7 +514,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
     { name: 'sconto_3_percentuale', label: 'Sc.3%',              type: 'decimal', col: 3, value: 0, step: '0.01', placeholder: 'es. -1' },
     { name: 'sconto_4_percentuale', label: 'Sc.4%',              type: 'decimal', col: 3, value: 0, step: '0.01' },
     { name: 'qualita_acciaio',    label: 'Qualità acciaio',  type: 'select', required: true, col: 4,
-      options: QUALITA_ACCIAIO.filter(v => v).map(v => ({ value: v, label: v })) },
+      options: qualita.map(q => ({ value: q.nome, label: q.nome })) },
     { name: 'lunghezza_mm',       label: 'Lunghezza (mm)',   type: 'decimal', col: 3, value: 6000 },
     { name: 'data_consegna_prevista', label: 'Cons. Prevista', type: 'date', col: 5 },
     { name: 'note',               label: 'Note',             type: 'textarea', col: 12 },
@@ -721,8 +736,9 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
       delete sendData.codice_prodotto;
       if (sendData.id_prodotto) sendData.id_prodotto = parseInt(sendData.id_prodotto);
       if (sendData.id_listino_zincatura) sendData.id_listino_zincatura = parseInt(sendData.id_listino_zincatura);
-      // CBAM: tariffa unica d'ordine, ereditata da ogni riga (non scelta dal compilatore)
+      // CBAM/Coperto: valore unico d'ordine, ereditato da ogni riga (non scelto dal compilatore)
       if (ord.cbam && ord.prezzo_cbam_kg != null) sendData.prezzo_cbam_kg = ord.prezzo_cbam_kg;
+      if (ord.coperto && ord.sconto_coperto_kg != null) sendData.sconto_coperto_kg = ord.sconto_coperto_kg;
       if (rigaId) {
         await api.ordini.righe.update(ordineId, rigaId, sendData);
         toast('Riga aggiornata');
