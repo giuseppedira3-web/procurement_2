@@ -125,7 +125,10 @@ async def list_all_righe_ddt(
             dr.quantita_consegnata, dr.unita_misura, dr.quantita_kg,
             dr.lotto, dr.numero_colata, dr.certificato_qualita,
             dr.fatturato, dr.note,
-            orr.qualita_acciaio, orr.lunghezza_mm
+            orr.qualita_acciaio, orr.lunghezza_mm,
+            orr.prezzo_unitario, orr.sconto_percentuale, orr.sconto_2_percentuale,
+            orr.sconto_3_percentuale, orr.sconto_4_percentuale,
+            orr.prezzo_zincatura, orr.prezzo_cbam_kg, orr.sconto_coperto_kg
         FROM ddt_righe dr
         JOIN ddt d ON d.id = dr.id_ddt
         JOIN fornitori f ON f.id = d.id_fornitore
@@ -158,7 +161,10 @@ async def get_ddt(id: int, conn: asyncpg.Connection = Depends(get_conn)):
                   dr.quantita_consegnata, dr.unita_misura, dr.quantita_kg,
                   dr.lotto, dr.numero_colata, dr.certificato_qualita, dr.note,
                   dr.fatturato, dr.created_at, dr.updated_at,
-                  orr.qualita_acciaio, orr.lunghezza_mm
+                  orr.qualita_acciaio, orr.lunghezza_mm,
+                  orr.prezzo_unitario, orr.sconto_percentuale, orr.sconto_2_percentuale,
+                  orr.sconto_3_percentuale, orr.sconto_4_percentuale,
+                  orr.prezzo_zincatura, orr.prezzo_cbam_kg, orr.sconto_coperto_kg
            FROM ddt_righe dr
            LEFT JOIN ordini_righe orr ON orr.id = dr.id_riga_ordine
            WHERE dr.id_ddt = $1 ORDER BY dr.numero_riga""",

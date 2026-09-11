@@ -685,6 +685,17 @@ class DdtRigaResponse(DdtRigaCreate):
     id: int
     qualita_acciaio: str | None = None
     lunghezza_mm: Decimal | None = None
+    # Scomposizione prezzo: ereditata dalla riga ordine collegata (id_riga_ordine),
+    # non da ddt_righe che non ha colonne di prezzo proprie. None se la riga DDT
+    # non è collegata a una riga ordine.
+    prezzo_unitario: Decimal | None = None
+    sconto_percentuale: Decimal | None = None
+    sconto_2_percentuale: Decimal | None = None
+    sconto_3_percentuale: Decimal | None = None
+    sconto_4_percentuale: Decimal | None = None
+    prezzo_zincatura: Decimal | None = None
+    prezzo_cbam_kg: Decimal | None = None
+    sconto_coperto_kg: Decimal | None = None
     id_ddt: int
     fatturato: bool
     created_at: datetime

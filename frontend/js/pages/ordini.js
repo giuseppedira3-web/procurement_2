@@ -11,8 +11,10 @@ function fmtSconto(v) {
 
 // Scomposizione del prezzo di riga: base scontata (sconti a catena 1-4) +
 // zincatura + trasporto + CBAM + Coperto = netto. Unica fonte di verità per
-// questo calcolo, usata sia dalla vista Righe globale che dal dettaglio ordine.
-function calcolaPrezzi(r) {
+// questo calcolo: usata dalla vista Righe globale e dal dettaglio ordine qui,
+// e riesportata per la stessa scomposizione nelle viste DDT (ddt.js), dove
+// il prezzo non è sulla riga DDT ma va recuperato dalla riga ordine collegata.
+export function calcolaPrezzi(r) {
   const s1 = Number(r.sconto_percentuale   || 0);
   const s2 = Number(r.sconto_2_percentuale || 0);
   const s3 = Number(r.sconto_3_percentuale || 0);

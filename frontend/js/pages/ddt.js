@@ -1,6 +1,18 @@
 import { api } from '../api.js';
 import { fmt, toast, setHeaderActions, setTitle, qualitaBadge, countLabel } from '../utils.js';
 import { renderTable, showFormModal, deleteWithConfirm } from '../components.js';
+import { calcolaPrezzi } from './ordini.js';
+
+// Scomposizione prezzo per una riga DDT: il prezzo non è sulla riga DDT ma va
+// ereditato dalla riga ordine collegata (id_riga_ordine) — righe DDT non
+// legate a un ordine (ricevute fuori PO) non hanno prezzo. Riusa la stessa
+// scomposizione di ordini.js (base scontata + servizi/zincatura + CBAM +
+// Coperto) così i due punti restano coerenti.
+function prezziRigaDdt(r) {
+  if (!r.id_riga_ordine) return { base: null, servizi: null, cbam: null, coperto: null, netto: null };
+  const { base, zinc, cbam, coperto, netto } = calcolaPrezzi(r);
+  return { base, servizi: zinc || null, cbam: cbam || null, coperto: coperto || null, netto };
+}
 
 const LIST_COLS = [
   { key: 'codice_ddt',           label: 'Codice',         fmt: v => `<span class="fw-semibold">${v}</span>` },
@@ -29,6 +41,16 @@ const RIGHE_COLS = [
   { key: 'quantita_consegnata',  label: 'Q.tà',            fmt: v => fmt(v, 'number') },
   { key: 'unita_misura',         label: 'U.M.',            fmt: v => `<code>${v}</code>` },
   { key: 'quantita_kg',          label: 'kg',              fmt: v => fmt(v, 'number') },
+  { key: '_pBase',               label: 'Base',    class: 'text-end', filterable: false,
+    fmt: v => v != null ? fmt(v, 'number') : '<span class="text-muted">—</span>' },
+  { key: '_servizi',             label: 'Servizi', class: 'text-end', filterable: false,
+    fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
+  { key: '_cbam',                label: 'CBAM',    class: 'text-end', filterable: false,
+    fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
+  { key: '_coperto',             label: 'Coperto', class: 'text-end', filterable: false,
+    fmt: v => v ? `<span class="${v < 0 ? 'text-success' : 'text-primary'}">${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
+  { key: '_pNetto',              label: 'P.Netto', class: 'text-end', filterable: false,
+    fmt: v => v != null ? `<strong>${fmt(v, 'number')}</strong>` : '<span class="text-muted">—</span>' },
   { key: 'stato_ddt',            label: 'Stato DDT',       fmt: v => fmt(v, 'stato') },
   { key: '_fatturato',           label: 'Fatturato',       fmt: v => v },
 ];
@@ -96,6 +118,8 @@ export async function renderDdt(container, id) {
       r._fatturato = r.fatturato
         ? '<span class="badge bg-success">sì</span>'
         : '<span class="badge bg-warning text-dark">no</span>';
+      const { base, servizi, cbam, coperto, netto } = prezziRigaDdt(r);
+      r._pBase = base; r._servizi = servizi; r._cbam = cbam; r._coperto = coperto; r._pNetto = netto;
     });
     const wrap2 = document.createElement('div');
     wrap2.className = 'table-card';
@@ -244,20 +268,27 @@ function ddtRigheSection(righe, prodotti, ordini) {
   const prodMap  = Object.fromEntries(prodotti.map(p => [p.id, { codice: p.codice_prodotto, desc: p.descrizione }]));
   const ordMap   = Object.fromEntries(ordini.map(o => [o.id, o.riferimento_fornitore || o.codice_ordine]));
 
+  const dash = '<span class="text-muted">—</span>';
   const tableRows = righe.map(r => {
     const prod = r.id_prodotto ? prodMap[r.id_prodotto] : null;
     const prodCell = prod
       ? `${prod.desc || prod.codice}${prod.desc && prod.codice ? `<br><small class="text-muted">${prod.codice}</small>` : ''}`
       : (r.descrizione_libera || '—');
+    const { base, servizi, cbam, coperto, netto } = prezziRigaDdt(r);
     return `<tr>
     <td class="text-center">${r.numero_riga}</td>
     <td>${prodCell}</td>
     <td>${r.id_ordine ? `<a href="#/ordini/${r.id_ordine}" class="text-decoration-none">${ordMap[r.id_ordine] || r.id_ordine}</a>` : '—'}</td>
     <td>${qualitaBadge(r.qualita_acciaio)}</td>
-    <td class="text-end">${r.lunghezza_mm ? Number(r.lunghezza_mm).toLocaleString('it-IT') : '<span class="text-muted">—</span>'}</td>
+    <td class="text-end">${r.lunghezza_mm ? Number(r.lunghezza_mm).toLocaleString('it-IT') : dash}</td>
     <td class="text-end">${fmt(r.quantita_consegnata, 'number')}</td>
     <td><code>${r.unita_misura}</code></td>
     <td class="text-end">${fmt(r.quantita_kg, 'number')}</td>
+    <td class="text-end">${base != null ? fmt(base, 'number') : dash}</td>
+    <td class="text-end">${servizi ? `<span class="text-primary">+${fmt(servizi, 'number')}</span>` : dash}</td>
+    <td class="text-end">${cbam ? `<span class="text-primary">+${fmt(cbam, 'number')}</span>` : dash}</td>
+    <td class="text-end">${coperto ? `<span class="${coperto < 0 ? 'text-success' : 'text-primary'}">${fmt(coperto, 'number')}</span>` : dash}</td>
+    <td class="text-end">${netto != null ? `<strong>${fmt(netto, 'number')}</strong>` : dash}</td>
     <td>${r.lotto || '—'}</td>
     <td>${r.numero_colata || '—'}</td>
     <td>${r.certificato_qualita || '—'}</td>
@@ -271,14 +302,17 @@ function ddtRigheSection(righe, prodotti, ordini) {
 
   return `<div class="table-card">
     <div class="table-toolbar fw-semibold small"><i class="bi bi-list-ul me-2"></i>Righe DDT</div>
+    <div class="table-responsive">
     <table class="table table-hover">
       <thead><tr>
         <th class="text-center">#</th><th>Prodotto</th><th>Ordine</th><th>Qualità</th><th class="text-end">Lung. mm</th>
         <th class="text-end">Q.tà</th><th>U.M.</th><th class="text-end">kg</th>
+        <th class="text-end">Base</th><th class="text-end">Servizi</th><th class="text-end">CBAM</th><th class="text-end">Coperto</th><th class="text-end">P.Netto</th>
         <th>Lotto</th><th>Colata</th><th>Certificato</th><th>Fatturato</th><th></th>
       </tr></thead>
-      <tbody>${tableRows || '<tr><td colspan="13" class="text-center text-muted py-3">Nessuna riga</td></tr>'}</tbody>
+      <tbody>${tableRows || '<tr><td colspan="17" class="text-center text-muted py-3">Nessuna riga</td></tr>'}</tbody>
     </table>
+    </div>
   </div>`;
 }
 
