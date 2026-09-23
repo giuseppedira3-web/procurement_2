@@ -1,11 +1,11 @@
 import { api, getListinoTubolareId, setListinoTubolareId } from '../api.js';
-import { fmt, toast, downloadCsv } from '../utils.js';
+import { fmt, toast, downloadCsv, qualitaBadge } from '../utils.js';
 import { renderTable, showFormModal, showImportModal, deleteWithConfirm } from '../components.js';
 
 const EXPORT_BTN = '<button class="btn btn-outline-success btn-sm me-1" data-action="export" title="Scarica i dati mostrati in CSV"><i class="bi bi-file-earmark-arrow-down me-1"></i>Scarica</button>';
 
 export async function renderListino(container) {
-  const [servizi, fornitori, prodotti, categorie, categorieServizio, conversioni, vettori, listiniTubolare] = await Promise.all([
+  const [servizi, fornitori, prodotti, categorie, categorieServizio, conversioni, vettori, listiniTubolare, listinoLamieraProduttori] = await Promise.all([
     api.listinoServizi.list('?limit=1000'),
     api.fornitori.list('?limit=1000'),
     api.prodotti.list('?limit=3000'),
@@ -14,6 +14,7 @@ export async function renderListino(container) {
     api.conversioni.list('?limit=3000'),
     api.vettori.list(),
     api.listiniTubolare.list(),
+    api.listinoLamieraProduttori.list(),
   ]);
 
   const fornMap = Object.fromEntries(fornitori.map(f => [f.id, f.ragione_sociale]));
@@ -34,7 +35,7 @@ export async function renderListino(container) {
       <div class="tab-pane fade" id="ls-tab"></div>
     </div>`;
 
-  renderListinoProdotti(container.querySelector('#lp-tab'), { prodotti, categorie, conversioni, listiniTubolare });
+  renderListinoProdotti(container.querySelector('#lp-tab'), { prodotti, categorie, conversioni, listiniTubolare, listinoLamieraProduttori });
   renderListinoServizi(container.querySelector('#ls-tab'), { servizi, fornitori, zincherie, vettori, categorie, categorieServizio, fornMap, catMap, vetMap });
 }
 
@@ -45,7 +46,7 @@ export async function renderListino(container) {
 // il tubolare, base per mercantile/travi) sono persistiti su categorie_prodotto.
 // ---------------------------------------------------------------------------
 
-function renderListinoProdotti(container, { prodotti, categorie, conversioni, listiniTubolare }) {
+function renderListinoProdotti(container, { prodotti, categorie, conversioni, listiniTubolare, listinoLamieraProduttori }) {
   if (!categorie.length) {
     container.innerHTML = '<div class="text-center py-5 text-muted">Nessuna categoria prodotto definita</div>';
     return;
@@ -66,7 +67,7 @@ function renderListinoProdotti(container, { prodotti, categorie, conversioni, li
     } else if (cat.codice === 'TRAVI') {
       renderTravi(pane, { cat, prodotti });
     } else if (cat.codice === 'LAMIERA') {
-      renderLamiera(pane, { cat, prodotti });
+      renderLamiera(pane, { cat, prodotti, produttori: listinoLamieraProduttori });
     } else if (['MERCANTILE', 'RETI', 'GRIGLIATI'].includes(cat.codice)) {
       renderExtraBase(pane, { cat, prodotti });
     } else {
@@ -501,118 +502,261 @@ function renderTravi(container, { cat, prodotti }) {
   refresh();
 }
 
-// --- LAMIERA: 3 basi (Nera/Decapata/Zincata) — si applicano solo alle -------
-// --- lamiere con tipologia impostata; le altre restano fuori dal calcolo. --
+// --- LAMIERA: 3 sotto-aree per produttore (Arvedi/Marcegaglia/ArcelorMittal) -
+// --- ognuna con logica di costo propria. Arvedi: Base Nero + Base Zincato, -
+// --- extra per fascia di spessore (distinte tra Nera e Zincata) — per la -
+// --- Nera la fascia porta anche l'extra da sommare a Base Nero per il -----
+// --- prezzo Decapato. Gli altri produttori si aggiungono con calma. -------
 
-const BASE_FIELD_TIPOLOGIA = { Nera: 'base_nera', Decapata: 'base_decapata', Zincata: 'base_zincata' };
 const TIPOLOGIA_BADGE = { Nera: 'dark', Decapata: 'warning', Zincata: 'secondary' };
 
-// Extra per larghezza non standard (1000/2000mm): 1250/1500 restano a extra 0.
-const EXTRA_LARGHEZZA_FIELD = {
-  1000: { Nera: 'extra_l1000_nera', Decapata: 'extra_l1000_decapata', Zincata: 'extra_l1000_zincata' },
-  2000: { Nera: 'extra_l2000_nera', Decapata: 'extra_l2000_decapata', Zincata: 'extra_l2000_zincata' },
-};
-
-function renderLamiera(container, { cat, prodotti }) {
+async function renderLamiera(container, { cat, prodotti, produttori }) {
   const prodottiCat = prodotti.filter(p => p.id_categoria === cat.id);
+
+  if (!produttori.length) {
+    container.innerHTML = '<div class="text-center py-5 text-muted">Nessun produttore LAMIERA configurato</div>';
+    return;
+  }
+
+  let produttoreAttivo = produttori[0];
+  let tipologiaAttiva = 'Nera';
+  const TIPOLOGIA_LABEL = { Nera: 'Nero', Zincata: 'Zincato' };
+  const extraSpessoreCache = {}; // id_produttore -> righe
+  const extraQualitaCache = {};  // id_produttore -> righe
+
+  async function loadExtraSpessore(idProduttore) {
+    if (!extraSpessoreCache[idProduttore]) {
+      extraSpessoreCache[idProduttore] = await api.listinoLamieraProduttori.extraSpessore(idProduttore);
+    }
+    return extraSpessoreCache[idProduttore];
+  }
+
+  async function loadExtraQualita(idProduttore) {
+    if (!extraQualitaCache[idProduttore]) {
+      extraQualitaCache[idProduttore] = await api.listinoLamieraProduttori.extraQualita(idProduttore);
+    }
+    return extraQualitaCache[idProduttore];
+  }
 
   const wrap = document.createElement('div');
   wrap.className = 'table-card';
   wrap.innerHTML = `
     <div class="table-toolbar flex-wrap gap-2">
-      ${Object.entries(BASE_FIELD_TIPOLOGIA).map(([tip, campo]) => `
-        <label class="small text-muted mb-0 me-1">Base ${tip}</label>
-        <div class="input-group input-group-sm" style="max-width:150px">
-          <input type="number" step="0.01" class="form-control" data-base="${tip}"
-            value="${cat[campo] != null ? Number(cat[campo]) : ''}">
-          <span class="input-group-text">€/ton</span>
-        </div>`).join('')}
+      <div class="btn-group btn-group-sm" role="group" aria-label="Produttore">
+        ${produttori.map((p, i) => `
+          <input type="radio" class="btn-check" name="lam-produttore" id="lam-p-${p.id}" autocomplete="off" ${i === 0 ? 'checked' : ''}>
+          <label class="btn btn-outline-secondary" for="lam-p-${p.id}">${p.produttore}</label>`).join('')}
+      </div>
       <span class="ms-auto text-muted small me-2" data-count></span>
       ${EXPORT_BTN}
     </div>
     <div class="table-toolbar flex-wrap gap-2">
-      <label class="small text-muted mb-0 me-1">Extra larghezza non standard</label>
-      ${Object.entries(EXTRA_LARGHEZZA_FIELD).flatMap(([larg, perTip]) => Object.entries(perTip).map(([tip, campo]) => `
-        <div class="input-group input-group-sm" style="max-width:150px" title="Extra ${larg}mm — ${tip}">
-          <span class="input-group-text">${larg} ${tip.slice(0, 1)}</span>
-          <input type="number" step="0.01" class="form-control" data-extra-larghezza="${campo}"
-            value="${cat[campo] != null ? Number(cat[campo]) : ''}">
-          <span class="input-group-text">€/ton</span>
-        </div>`)).join('')}
+      <label class="small text-muted mb-0 me-1">Base Nero</label>
+      <div class="input-group input-group-sm" style="max-width:150px">
+        <input type="number" step="0.01" class="form-control" data-base="base_nera">
+        <span class="input-group-text">€/ton</span>
+      </div>
+      <label class="small text-muted mb-0 ms-2 me-1">Base Zincato</label>
+      <div class="input-group input-group-sm" style="max-width:150px">
+        <input type="number" step="0.01" class="form-control" data-base="base_zincata">
+        <span class="input-group-text">€/ton</span>
+      </div>
+      <div class="btn-group btn-group-sm ms-3" role="group" aria-label="Vista extra">
+        <input type="radio" class="btn-check" name="lam-tipologia" id="lam-tip-Nera" autocomplete="off" checked>
+        <label class="btn btn-outline-dark" for="lam-tip-Nera">Extra Nero</label>
+        <input type="radio" class="btn-check" name="lam-tipologia" id="lam-tip-Zincata" autocomplete="off">
+        <label class="btn btn-outline-secondary" for="lam-tip-Zincata">Extra Zincato</label>
+      </div>
+    </div>
+    <div class="row g-0">
+      <div class="col-md-6" data-spessore-extra></div>
+      <div class="col-md-6" data-qualita-extra></div>
     </div>
     <div class="tbl-body"></div>`;
   container.innerHTML = '';
   container.appendChild(wrap);
 
   const columns = [
-    { key: 'codice_prodotto', label: 'Codice' },
-    { key: 'descrizione',     label: 'Descrizione' },
-    { key: '_tipologia',      label: 'Tipologia',
+    { key: 'codice_prodotto',   label: 'Codice' },
+    { key: 'descrizione',       label: 'Descrizione' },
+    { key: 'tipologia_lamiera', label: 'Tipologia',
       fmt: v => `<span class="badge bg-${TIPOLOGIA_BADGE[v] || 'secondary'}${v === 'Decapata' ? ' text-dark' : ''}">${v}</span>` },
-    { key: 'spessore_mm',     label: 'Spessore (mm)', class: 'text-end',
+    { key: 'spessore_mm',       label: 'Spessore (mm)', class: 'text-end',
       fmt: v => v != null ? Number(v).toLocaleString('it-IT') : '<span class="text-muted">—</span>' },
-    { key: 'larghezza_mm',    label: 'Larghezza (mm)', class: 'text-end',
+    { key: 'larghezza_mm',      label: 'Larghezza (mm)', class: 'text-end',
       fmt: v => v != null ? Number(v).toLocaleString('it-IT') : '<span class="text-muted">—</span>' },
-    { key: '_base',           label: 'Base (€/ton)', fmt: v => v != null ? fmt(v, 'currency') : '<span class="text-muted">n.d.</span>' },
-    { key: '_extraLarghezza', label: 'Extra Larghezza (€/ton)', fmt: v => v ? fmt(v, 'currency') : '<span class="text-muted">—</span>' },
   ];
 
-  function extraLarghezzaOf(p) {
-    const campo = EXTRA_LARGHEZZA_FIELD[Number(p.larghezza_mm)]?.[p.tipologia_lamiera];
-    if (!campo || cat[campo] == null) return 0;
-    return Number(cat[campo]);
+  // Solo le lamiere categorizzate: senza tipologia non si sa quale base usare.
+  function buildRows() {
+    return prodottiCat.filter(p => p.tipologia_lamiera);
   }
 
-  function buildRows() {
-    // Solo le lamiere categorizzate: senza tipologia non si sa quale base usare.
-    return prodottiCat
-      .filter(p => p.tipologia_lamiera)
-      .map(p => {
-        const campoBase = BASE_FIELD_TIPOLOGIA[p.tipologia_lamiera];
-        const base = cat[campoBase];
-        return { ...p, _tipologia: p.tipologia_lamiera, _base: base != null ? Number(base) : null, _extraLarghezza: extraLarghezzaOf(p) };
+  function fillBaseInputs() {
+    wrap.querySelector('[data-base="base_nera"]').value = produttoreAttivo.base_nera != null ? Number(produttoreAttivo.base_nera) : '';
+    wrap.querySelector('[data-base="base_zincata"]').value = produttoreAttivo.base_zincata != null ? Number(produttoreAttivo.base_zincata) : '';
+  }
+
+  function renderSpessore(righe) {
+    const filtrate = righe.filter(r => r.tipologia === tipologiaAttiva).sort((a, b) => a.ordine - b.ordine);
+    const host = wrap.querySelector('[data-spessore-extra]');
+    if (!filtrate.length) {
+      host.innerHTML = `<div class="text-muted small px-2 py-3">Nessuna fascia di spessore ${tipologiaAttiva} definita per ${produttoreAttivo.produttore}</div>`;
+      return;
+    }
+    // Extra Decapato ha senso solo per la Nera: il Decapato deriva da Base Nero + questo extra.
+    const showDecapato = tipologiaAttiva === 'Nera';
+    host.innerHTML = `
+      <div class="table-toolbar fw-semibold small border-end"><i class="bi bi-rulers me-2"></i>Lamiera ${TIPOLOGIA_LABEL[tipologiaAttiva]} — extra per spessore</div>
+      <div class="table-responsive border-end">
+        <table class="table table-sm mb-0 align-middle">
+          <thead><tr>
+            <th>Spessore (mm)</th>
+            <th class="text-center">Extra Spessore</th>
+            ${showDecapato ? '<th class="text-center">Extra Decapato</th>' : ''}
+          </tr></thead>
+          <tbody>
+            ${filtrate.map(r => `<tr>
+              <td>${r.spessore_label}</td>
+              <td class="text-center"><input type="number" step="0.01" class="form-control form-control-sm text-center mx-auto" style="max-width:110px"
+                data-spessore-id="${r.id}" data-campo="extra_spessore" value="${r.extra_spessore != null ? Number(r.extra_spessore) : ''}"></td>
+              ${showDecapato ? `<td class="text-center"><input type="number" step="0.01" class="form-control form-control-sm text-center mx-auto" style="max-width:110px"
+                data-spessore-id="${r.id}" data-campo="extra_decapato" value="${r.extra_decapato != null ? Number(r.extra_decapato) : ''}"></td>` : ''}
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    host.querySelectorAll('[data-spessore-id]').forEach(input => {
+      input.addEventListener('change', async e => {
+        const id = Number(input.dataset.spessoreId);
+        const campo = input.dataset.campo;
+        const val = e.target.value === '' ? null : Number(e.target.value);
+        try {
+          const updated = await api.listinoLamieraProduttori.updateExtraSpessore(id, { [campo]: val ?? 0 });
+          const riga = righe.find(r => r.id === id);
+          if (riga) riga[campo] = updated[campo];
+          toast('Extra aggiornato');
+        } catch (err) { toast(err.message, 'danger'); }
       });
+    });
+  }
+
+  function renderQualita(righe) {
+    const filtrate = righe.filter(r => r.tipologia === tipologiaAttiva).sort((a, b) => a.ordine - b.ordine);
+    const host = wrap.querySelector('[data-qualita-extra]');
+    if (!filtrate.length) {
+      host.innerHTML = `<div class="text-muted small px-2 py-3">Nessuna qualità ${tipologiaAttiva} definita per ${produttoreAttivo.produttore}</div>`;
+      return;
+    }
+    host.innerHTML = `
+      <div class="table-toolbar fw-semibold small"><i class="bi bi-award me-2"></i>Lamiera ${TIPOLOGIA_LABEL[tipologiaAttiva]} — extra per qualità</div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0 align-middle">
+          <thead><tr>
+            <th style="width:40px"></th>
+            <th>Qualità</th>
+            <th class="text-center">Extra Qualità</th>
+          </tr></thead>
+          <tbody>
+            ${filtrate.map(r => `<tr class="${r.selezionata ? 'table-primary' : ''}">
+              <td class="text-center">
+                <input type="radio" class="form-check-input" name="lam-qualita-sel" data-select-qualita-id="${r.id}"
+                  ${r.selezionata ? 'checked' : ''} title="Qualità in uso per tutti i codici ${TIPOLOGIA_LABEL[tipologiaAttiva]}">
+              </td>
+              <td>${qualitaBadge(r.qualita)}${r.selezionata ? ' <i class="bi bi-check-circle-fill text-primary ms-1" title="In uso"></i>' : ''}</td>
+              <td class="text-center"><input type="number" step="0.01" class="form-control form-control-sm text-center mx-auto" style="max-width:110px"
+                data-qualita-id="${r.id}" value="${r.extra_qualita != null ? Number(r.extra_qualita) : ''}"></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    host.querySelectorAll('[data-qualita-id]').forEach(input => {
+      input.addEventListener('change', async e => {
+        const id = Number(input.dataset.qualitaId);
+        const val = e.target.value === '' ? null : Number(e.target.value);
+        try {
+          const updated = await api.listinoLamieraProduttori.updateExtraQualita(id, { extra_qualita: val ?? 0 });
+          const riga = righe.find(r => r.id === id);
+          if (riga) riga.extra_qualita = updated.extra_qualita;
+          toast('Extra aggiornato');
+        } catch (err) { toast(err.message, 'danger'); }
+      });
+    });
+    host.querySelectorAll('[data-select-qualita-id]').forEach(radio => {
+      radio.addEventListener('change', async () => {
+        const id = Number(radio.dataset.selectQualitaId);
+        try {
+          await api.listinoLamieraProduttori.selezionaExtraQualita(id);
+          righe.forEach(r => { r.selezionata = (r.id === id); });
+          toast('Qualità in uso aggiornata');
+          renderQualita(righe);
+        } catch (err) { toast(err.message, 'danger'); }
+      });
+    });
+  }
+
+  function renderPannelli() {
+    renderSpessore(extraSpessoreCache[produttoreAttivo.id] || []);
+    renderQualita(extraQualitaCache[produttoreAttivo.id] || []);
   }
 
   function refresh() {
     const rows = buildRows();
-    wrap.querySelector('[data-count]').textContent = `${rows.length}/${prodottiCat.length} categorizzate`;
+    wrap.querySelector('[data-count]').textContent = `${rows.length}/${prodottiCat.length} categorizzate — ${produttoreAttivo.produttore}`;
     renderTable(wrap.querySelector('.tbl-body'), {
       columns, rows,
       emptyMsg: 'Nessuna lamiera con tipologia impostata (Nera/Decapata/Zincata) — assegnala da Prodotti',
     });
   }
 
-  Object.keys(BASE_FIELD_TIPOLOGIA).forEach(tip => {
-    wrap.querySelector(`[data-base="${tip}"]`).addEventListener('change', async e => {
-      const val = e.target.value === '' ? null : Number(e.target.value);
-      const campo = BASE_FIELD_TIPOLOGIA[tip];
-      try {
-        const updated = await api.categorie.update(cat.id, { [campo]: val ?? 0 });
-        cat[campo] = updated[campo];
-        toast(`Base ${tip} aggiornata`);
-        refresh();
-      } catch (err) { toast(err.message, 'danger'); }
+  const SPINNER = '<div class="text-center py-3 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Caricamento...</div>';
+
+  async function selezionaProduttore(p) {
+    produttoreAttivo = p;
+    fillBaseInputs();
+    refresh();
+    wrap.querySelector('[data-spessore-extra]').innerHTML = SPINNER;
+    wrap.querySelector('[data-qualita-extra]').innerHTML = SPINNER;
+    try {
+      await Promise.all([loadExtraSpessore(p.id), loadExtraQualita(p.id)]);
+      if (produttoreAttivo === p) renderPannelli();
+    } catch (err) {
+      if (produttoreAttivo === p) {
+        const errMsg = `<div class="text-center py-3 text-danger small">Errore nel caricamento: ${err.message}</div>`;
+        wrap.querySelector('[data-spessore-extra]').innerHTML = errMsg;
+        wrap.querySelector('[data-qualita-extra]').innerHTML = errMsg;
+      }
+      toast(err.message, 'danger');
+    }
+  }
+
+  produttori.forEach(p => {
+    wrap.querySelector(`#lam-p-${p.id}`).addEventListener('change', () => selezionaProduttore(p));
+  });
+
+  ['Nera', 'Zincata'].forEach(tip => {
+    wrap.querySelector(`#lam-tip-${tip}`).addEventListener('change', () => {
+      tipologiaAttiva = tip;
+      renderPannelli();
     });
   });
 
-  wrap.querySelectorAll('[data-extra-larghezza]').forEach(input => {
+  wrap.querySelectorAll('[data-base]').forEach(input => {
     input.addEventListener('change', async e => {
-      const campo = input.dataset.extraLarghezza;
+      const campo = input.dataset.base;
       const val = e.target.value === '' ? null : Number(e.target.value);
       try {
-        const updated = await api.categorie.update(cat.id, { [campo]: val ?? 0 });
-        cat[campo] = updated[campo];
-        toast('Extra larghezza aggiornato');
-        refresh();
+        const updated = await api.listinoLamieraProduttori.update(produttoreAttivo.id, { [campo]: val ?? 0 });
+        produttoreAttivo[campo] = updated[campo];
+        toast(`Base aggiornata — ${produttoreAttivo.produttore}`);
       } catch (err) { toast(err.message, 'danger'); }
     });
   });
 
   wrap.querySelector('[data-action="export"]').onclick = () =>
-    downloadCsv('listino_LAMIERA.csv', columns, buildRows());
+    downloadCsv(`listino_LAMIERA_${produttoreAttivo.produttore}.csv`, columns, buildRows());
 
-  refresh();
+  await selezionaProduttore(produttoreAttivo);
 }
 
 // --- MERCANTILE: extra di prodotto + base di intestazione -------------------

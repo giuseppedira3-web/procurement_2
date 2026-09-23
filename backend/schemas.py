@@ -121,6 +121,55 @@ class CategoriaResponse(CategoriaCreate):
 
 
 # ---------------------------------------------------------------------------
+# LISTINO LAMIERA PER PRODUTTORE (Arvedi / Marcegaglia / ArcelorMittal)
+# ---------------------------------------------------------------------------
+
+class ListinoLamieraProduttoreUpdate(BaseModel):
+    base_nera: Decimal | None = None
+    base_zincata: Decimal | None = None
+
+
+class ListinoLamieraProduttoreResponse(ListinoLamieraProduttoreUpdate):
+    id: int
+    produttore: str
+    created_at: datetime
+    updated_at: datetime
+
+
+TipologiaLamieraSpessore = Literal["Nera", "Zincata"]
+
+
+class ListinoLamieraExtraSpessoreUpdate(BaseModel):
+    extra_spessore: Decimal | None = None
+    extra_decapato: Decimal | None = None
+
+
+class ListinoLamieraExtraSpessoreResponse(ListinoLamieraExtraSpessoreUpdate):
+    id: int
+    id_produttore: int
+    tipologia: TipologiaLamieraSpessore
+    spessore_label: str
+    ordine: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ListinoLamieraExtraQualitaUpdate(BaseModel):
+    extra_qualita: Decimal | None = None
+
+
+class ListinoLamieraExtraQualitaResponse(ListinoLamieraExtraQualitaUpdate):
+    id: int
+    id_produttore: int
+    tipologia: TipologiaLamieraSpessore
+    qualita: str
+    ordine: int
+    selezionata: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
 # QUALITA' ACCIAIO
 # ---------------------------------------------------------------------------
 
