@@ -53,7 +53,10 @@ async def list_ordini(
         f"""SELECT o.*,
                 mf.comune AS comune_origine,
                 v.ragione_sociale AS nome_vettore,
-                z.ragione_sociale AS nome_zincheria
+                z.ragione_sociale AS nome_zincheria,
+                (SELECT ROUND(100.0 * SUM(r.quantita_consegnata)
+                             / NULLIF(SUM(r.quantita_ordinata), 0), 1)
+                   FROM ordini_righe r WHERE r.id_ordine = o.id) AS perc_consegnato
             FROM ordini o
             LEFT JOIN magazzini_fornitore mf ON mf.id = o.id_magazzino_origine
             LEFT JOIN vettori v ON v.id = o.id_vettore

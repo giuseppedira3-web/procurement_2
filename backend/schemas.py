@@ -564,6 +564,7 @@ class OrdineResponse(OrdineCreate):
     comune_origine: str | None = None
     nome_vettore: str | None = None
     nome_zincheria: str | None = None
+    perc_consegnato: Decimal | None = None
     created_at: datetime
     updated_at: datetime
 

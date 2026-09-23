@@ -36,9 +36,23 @@ const LIST_COLS = [
   { key: 'riferimento_fornitore', label: 'Rif. Fornitore' },
   { key: 'data_ordine',           label: 'Data',            fmt: v => fmt(v, 'date') },
   { key: 'data_consegna_prevista',label: 'Cons. Prevista',  fmt: v => fmt(v, 'date') },
-  { key: 'stato',                 label: 'Stato',           fmt: v => fmt(v, 'stato') },
+  { key: 'perc_consegnato',       label: 'Completamento',   class: 'text-end', fmt: fmtCompletamento },
   { key: 'incoterm',              label: 'Incoterm' },
 ];
+
+// Percentuale consegnata sull'ordinato (somma quantità di tutte le righe),
+// stessa definizione di perc_consegnato in v_stato_ordini.
+function fmtCompletamento(v) {
+  if (v == null) return '<span class="text-muted">—</span>';
+  const pct = Number(v);
+  const barColor = pct >= 100 ? 'bg-success' : pct > 0 ? 'bg-warning' : 'bg-secondary';
+  return `<div class="d-flex align-items-center justify-content-end gap-2">
+            <div class="progress flex-grow-1" style="height:6px;min-width:60px;max-width:100px">
+              <div class="progress-bar ${barColor}" style="width:${Math.min(pct,100)}%"></div>
+            </div>
+            <small>${pct.toLocaleString('it-IT')}%</small>
+          </div>`;
+}
 
 let _righeViewActive = false;
 
