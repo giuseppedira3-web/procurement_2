@@ -115,7 +115,7 @@ async def list_all_righe_ddt(
     rows = await conn.fetch(
         f"""
         SELECT
-            dr.id, dr.id_ddt, dr.numero_riga,
+            dr.id, dr.id_ddt, dr.numero_riga, dr.id_ordine, dr.id_riga_ordine,
             d.codice_ddt, d.stato AS stato_ddt, d.data_ddt,
             d.numero_ddt_fornitore,
             f.ragione_sociale AS fornitore,
