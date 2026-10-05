@@ -99,9 +99,9 @@ export async function renderOrdini(container, id) {
   const headerFields = [
     { name: 'id_fornitore',           label: 'Fornitore',         type: 'select', required: true, col: 6,
       options: acciaierie.map(f => ({ value: f.id, label: f.ragione_sociale })) },
+    { name: 'riferimento_fornitore',  label: 'Rif. Fornitore',    type: 'text',   col: 3 },
     { name: 'data_ordine',            label: 'Data Ordine',       type: 'date',   required: true, col: 3 },
     { name: 'data_consegna_prevista', label: 'Cons. Prevista',    type: 'date',   col: 3 },
-    { name: 'riferimento_fornitore',  label: 'Rif. Fornitore',    type: 'text',   col: 4 },
     { name: 'incoterm',               label: 'Incoterm',          type: 'select', col: 4,
       options: INCOTERM.map(v=>({value:v,label:v})) },
     { name: 'valuta',                 label: 'Valuta',            type: 'text',   col: 2, value: 'EUR' },
@@ -526,6 +526,9 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
     { name: 'codice_prodotto',    label: 'Codice Prodotto',       type: 'text',    col: 5, placeholder: 'es. Q151' },
     { name: 'id_prodotto',        type: 'hidden' },
     { name: 'descrizione_libera', label: 'Descrizione libera (se fuori catalogo)', type: 'text', col: 5 },
+    { name: 'qualita_acciaio',    label: 'Qualità acciaio',  type: 'select', required: true, col: 6,
+      options: qualita.map(q => ({ value: q.nome, label: q.nome })) },
+    { name: 'lunghezza_mm',       label: 'Lunghezza (mm)',   type: 'decimal', required: true, col: 6 },
     { name: 'quantita_ordinata',  label: 'Q.tà Ordinata',         type: 'decimal', required: true, col: 3 },
     { name: 'unita_misura',       label: 'U.M.',                  type: 'select',  required: true, col: 2,
       options: ['kg','t','m','pz','mq'].map(v => ({ value: v, label: v })) },
@@ -537,9 +540,6 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
     { name: 'sconto_2_percentuale', label: 'Sc.2%',              type: 'decimal', col: 3, value: 0, step: '0.01', placeholder: 'es. +5' },
     { name: 'sconto_3_percentuale', label: 'Sc.3%',              type: 'decimal', col: 3, value: 0, step: '0.01', placeholder: 'es. -1' },
     { name: 'sconto_4_percentuale', label: 'Sc.4%',              type: 'decimal', col: 3, value: 0, step: '0.01' },
-    { name: 'qualita_acciaio',    label: 'Qualità acciaio',  type: 'select', required: true, col: 4,
-      options: qualita.map(q => ({ value: q.nome, label: q.nome })) },
-    { name: 'lunghezza_mm',       label: 'Lunghezza (mm)',   type: 'decimal', col: 3, value: 6000 },
     { name: 'data_consegna_prevista', label: 'Cons. Prevista', type: 'date', col: 5 },
     { name: 'note',               label: 'Note',             type: 'textarea', col: 12 },
   ];
@@ -665,16 +665,20 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
       }
 
       // Mostra/nasconde il campo lunghezza in base alla categoria del prodotto.
-      // Rilevante solo per TRAVI, MERCANTILE, TUBOLARE (default 6000);
-      // per le altre categorie (lamiera, reti, grigliati…) la lunghezza è irrilevante.
+      // Rilevante (e obbligatorio) solo per TRAVI, MERCANTILE, TUBOLARE: vuoto
+      // di default, precompilato solo se il prodotto ha una lunghezza in
+      // anagrafica. Per le altre categorie (lamiera, reti, grigliati…) la
+      // lunghezza è irrilevante.
       function setLunghezza(prod, isInit) {
         if (!inputLunghezza) return;
         const catCode  = prod ? catById[prod.id_categoria]?.codice : null;
         const richiede = !prod || CAT_CON_LUNGHEZZA.includes(catCode);
+        const lField = fields.find(f => f.name === 'lunghezza_mm');
+        if (lField) lField.required = richiede;
         inputLunghezza.parentElement.style.display = richiede ? '' : 'none';
-        if (!richiede) { inputLunghezza.value = ''; return; }
-        if (!isInit && !inputLunghezza.value)
-          inputLunghezza.value = (prod && prod.lunghezza_mm) ? prod.lunghezza_mm : 6000;
+        if (!richiede) { inputLunghezza.value = ''; inputLunghezza.classList.remove('is-invalid'); return; }
+        if (!isInit && !inputLunghezza.value && prod?.lunghezza_mm)
+          inputLunghezza.value = prod.lunghezza_mm;
       }
 
       function applyProdotto(codice, isInit) {
