@@ -299,13 +299,15 @@ class ListinoTubolareResponse(ListinoTubolareCreate):
 class ListinoTubolarePrezzoUpsert(BaseModel):
     id_prodotto: int
     qualita: QualitaTubolare
-    prezzo: Decimal
+    prezzo: Decimal                # base, soggetta a sconto
+    extra: Decimal | None = None   # non scontato; None = invariato (0 su riga nuova)
 
 
 class ListinoTubolarePrezzoResponse(BaseModel):
     id_prodotto: int
     qualita: QualitaTubolare
     prezzo: Decimal
+    extra: Decimal
 
 
 # ---------------------------------------------------------------------------
@@ -589,6 +591,7 @@ class OrdineRigaCreate(BaseModel):
     prezzo_zincatura: Decimal | None = None
     prezzo_cbam_kg: Decimal | None = None
     sconto_coperto_kg: Decimal | None = None
+    prezzo_extra: Decimal | None = None  # extra listino TUBOLARE, non scontato
     data_consegna_prevista: date | None = None
     note: str | None = None
 
@@ -626,6 +629,7 @@ class OrdineRigaUpdate(BaseModel):
     prezzo_zincatura: Decimal | None = None
     prezzo_cbam_kg: Decimal | None = None
     sconto_coperto_kg: Decimal | None = None
+    prezzo_extra: Decimal | None = None  # extra listino TUBOLARE, non scontato
     data_consegna_prevista: date | None = None
     note: str | None = None
 
@@ -746,6 +750,7 @@ class DdtRigaResponse(DdtRigaCreate):
     prezzo_zincatura: Decimal | None = None
     prezzo_cbam_kg: Decimal | None = None
     sconto_coperto_kg: Decimal | None = None
+    prezzo_extra: Decimal | None = None
     id_ddt: int
     fatturato: bool
     created_at: datetime

@@ -3,14 +3,15 @@ import { fmt, toast, setHeaderActions, setTitle, qualitaBadge, countLabel } from
 import { renderTable, showFormModal, deleteWithConfirm, attachAutocomplete } from '../components.js';
 
 
-function fmtSconto(v) {
+export function fmtSconto(v) {
   const n = Number(v);
   if (!n) return '<span class="text-muted">—</span>';
   return `<small class="${n < 0 ? 'text-success' : 'text-warning'}">${n > 0 ? '+' : ''}${n}%</small>`;
 }
 
 // Scomposizione del prezzo di riga: base scontata (sconti a catena 1-4) +
-// zincatura + trasporto + CBAM + Coperto = netto. Unica fonte di verità per
+// extra listino TUBOLARE (non scontato) + zincatura + trasporto + CBAM +
+// Coperto = netto. base include già l'extra: è il prezzo materiale. Unica fonte di verità per
 // questo calcolo: usata dalla vista Righe globale e dal dettaglio ordine qui,
 // e riesportata per la stessa scomposizione nelle viste DDT (ddt.js), dove
 // il prezzo non è sulla riga DDT ma va recuperato dalla riga ordine collegata.
@@ -23,8 +24,9 @@ export function calcolaPrezzi(r) {
   const trasp   = r.prezzo_trasporto_kg != null ? Number(r.prezzo_trasporto_kg) : 0;
   const cbam    = r.prezzo_cbam_kg      != null ? Number(r.prezzo_cbam_kg)      : 0;
   const coperto = r.sconto_coperto_kg   != null ? Number(r.sconto_coperto_kg)   : 0;
-  const base  = Number(r.prezzo_unitario) * (1+s1/100) * (1+s2/100) * (1+s3/100) * (1+s4/100);
-  return { s1, s2, s3, s4, base, zinc, trasp, cbam, coperto, netto: base + zinc + trasp + cbam + coperto };
+  const extra   = r.prezzo_extra        != null ? Number(r.prezzo_extra)        : 0;
+  const base  = Number(r.prezzo_unitario) * (1+s1/100) * (1+s2/100) * (1+s3/100) * (1+s4/100) + extra;
+  return { s1, s2, s3, s4, extra, base, zinc, trasp, cbam, coperto, netto: base + zinc + trasp + cbam + coperto };
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +318,7 @@ async function renderDetail(container, id) {
   const listinoTubolareAttivo = listiniTubolare.find(l => l.id === getListinoTubolareId()) || listiniTubolare[0] || null;
   const prezziTubolareRows = listinoTubolareAttivo ? await api.listiniTubolare.prezzi(listinoTubolareAttivo.id) : [];
   const prezzoTubolareMap = Object.fromEntries(
-    prezziTubolareRows.filter(r => r.qualita === 'prezzo_riferimento').map(r => [r.id_prodotto, r.prezzo])
+    prezziTubolareRows.filter(r => r.qualita === 'prezzo_riferimento').map(r => [r.id_prodotto, { prezzo: r.prezzo, extra: Number(r.extra) || 0 }])
   );
 
   setTitle(`Ordine: ${ord.codice_ordine}`);
@@ -331,12 +333,13 @@ async function renderDetail(container, id) {
   const prodMap = Object.fromEntries(prodotti.map(p => [p.id, { codice: p.codice_prodotto, desc: p.descrizione }]));
   const detailRows = ord.righe.map(r => {
     const prod = r.id_prodotto ? prodMap[r.id_prodotto] : null;
-    const { s1, s2, s3, s4, zinc, trasp, cbam, coperto, netto } = calcolaPrezzi(r);
+    const { s1, s2, s3, s4, extra, zinc, trasp, cbam, coperto, netto } = calcolaPrezzi(r);
     return {
       ...r,
       _prodotto:      prod ? (prod.desc || prod.codice) : (r.descrizione_libera || '—'),
       _prodottoCodice: prod && prod.desc && prod.codice ? prod.codice : null,
       _s1: s1, _s2: s2, _s3: s3, _s4: s4,
+      _extra: extra || null,
       _zinc: zinc || null,
       _trasp: trasp || null,
       _cbam: cbam || null,
@@ -345,6 +348,7 @@ async function renderDetail(container, id) {
     };
   });
   const hasTrasporto = detailRows.some(r => r._trasp);
+  const hasExtra     = detailRows.some(r => r._extra);
 
   const DETAIL_COLS = [
     { key: 'numero_riga',         label: '#',          class: 'text-center' },
@@ -360,6 +364,8 @@ async function renderDetail(container, id) {
     { key: '_s2', label: 'Sc.2',  class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
     { key: '_s3', label: 'Sc.3',  class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
     { key: '_s4', label: 'Sc.4',  class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
+    { key: '_extra', label: 'Extra', class: 'text-end', filterable: false,
+      fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
     { key: '_zinc', label: 'Zinc.', class: 'text-end', filterable: false,
       fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
     { key: '_trasp', label: 'Trasp.', class: 'text-end', filterable: false,
@@ -387,6 +393,7 @@ async function renderDetail(container, id) {
   const cols = DETAIL_COLS
     .filter(c => c.key !== '_zinc' || ord.zincatura)
     .filter(c => c.key !== '_trasp' || hasTrasporto)
+    .filter(c => c.key !== '_extra' || hasExtra)
     .filter(c => c.key !== '_cbam' || ord.cbam)
     .filter(c => c.key !== '_coperto' || ord.coperto);
   renderTable(righeWrap.querySelector('#righe-tbl'), {
@@ -525,6 +532,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
     { name: 'quantita_kg',        label: 'Q.tà (kg)',             type: 'decimal', col: 3 },
     { name: 'prezzo_unitario',      label: 'Prezzo Unitario',    type: 'decimal', required: true, col: 4, step: '0.000001' },
     { name: 'valuta',               label: 'Valuta',             type: 'text',    col: 2, value: 'EUR' },
+    { name: 'prezzo_extra',         label: 'Extra (non scontato)', type: 'decimal', col: 3, step: '0.000001' },
     { name: 'sconto_percentuale',   label: 'Sc.1% (−=sconto)',   type: 'decimal', col: 3, value: 0, step: '0.01', placeholder: 'es. -27' },
     { name: 'sconto_2_percentuale', label: 'Sc.2%',              type: 'decimal', col: 3, value: 0, step: '0.01', placeholder: 'es. +5' },
     { name: 'sconto_3_percentuale', label: 'Sc.3%',              type: 'decimal', col: 3, value: 0, step: '0.01', placeholder: 'es. -1' },
@@ -563,6 +571,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
       const inputQualita  = body.querySelector('[name="qualita_acciaio"]');
       const inputLunghezza = body.querySelector('[name="lunghezza_mm"]');
       const inputSconto1  = body.querySelector('[name="sconto_percentuale"]');
+      const inputExtra    = body.querySelector('[name="prezzo_extra"]');
 
       let currentProd = null;
 
@@ -583,6 +592,27 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
         if (!req) inputSconto1.classList.remove('is-invalid');
       }
 
+      // Extra di listino: esiste (ed è obbligatorio) solo per i TUBOLARE,
+      // sommato al prezzo dopo gli sconti. Per le altre categorie il campo
+      // è nascosto e svuotato.
+      function setExtraTubolare(isTub) {
+        const eField = fields.find(f => f.name === 'prezzo_extra');
+        if (eField) eField.required = isTub;
+        if (!inputExtra) return;
+        inputExtra.parentElement.style.display = isTub ? '' : 'none';
+        const label = inputExtra.previousElementSibling;
+        if (label) {
+          const ast = label.querySelector('.text-danger');
+          if (isTub && !ast) label.insertAdjacentHTML('beforeend', ' <span class="text-danger">*</span>');
+          else if (!isTub && ast) ast.remove();
+        }
+        if (!isTub) {
+          inputExtra.value = '';
+          inputExtra.classList.remove('is-invalid');
+          body.querySelector('.extra-suggerito')?.remove();
+        }
+      }
+
       function showFeedback(msg, ok) {
         body.querySelector('.prod-feedback')?.remove();
         inputCodice.classList.toggle('is-invalid', !ok);
@@ -597,26 +627,27 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
       // Prezzo di listino/riferimento: è solo un suggerimento indicativo, non
       // viene mai compilato in automatico. Il compilatore deve valutarlo ed
       // applicarlo esplicitamente cliccando "usa questo prezzo".
-      function showPrezzoSuggerito(valore, nota) {
-        body.querySelector('.prezzo-suggerito')?.remove();
+      function showPrezzoSuggerito(valore, nota, input = inputPrezzo, cls = 'prezzo-suggerito') {
+        body.querySelector(`.${cls}`)?.remove();
         if (valore == null) return;
         const valFmt = Number(valore).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
         const div = document.createElement('div');
-        div.className = 'prezzo-suggerito text-muted small mt-1';
+        div.className = `${cls} text-muted small mt-1`;
         div.innerHTML = `<i class="bi bi-lightbulb me-1"></i><strong>${valFmt}</strong>${nota ? ' ' + nota : ''}
           <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1 ms-1 prezzo-suggerito-apply" title="Usa questo prezzo">
             <i class="bi bi-arrow-up-circle"></i>
           </button>`;
-        inputPrezzo.after(div);
+        input.after(div);
         div.querySelector('.prezzo-suggerito-apply').addEventListener('click', e => {
           e.preventDefault();
-          inputPrezzo.value = valore;
-          inputPrezzo.classList.remove('is-invalid');
+          input.value = valore;
+          input.classList.remove('is-invalid');
           div.remove();
-          inputPrezzo.focus();
+          input.focus();
         });
       }
       inputPrezzo.addEventListener('input', () => body.querySelector('.prezzo-suggerito')?.remove());
+      inputExtra?.addEventListener('input', () => body.querySelector('.extra-suggerito')?.remove());
 
       function recalcKg() {
         if (!currentProd) return;
@@ -654,6 +685,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
           showPrezzoSuggerito(null);
           setLunghezza(null, isInit);
           setSconto1Required(false);
+          setExtraTubolare(false);
           return;
         }
         const prod = prodByCode[codice.trim().toUpperCase()];
@@ -664,6 +696,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
           showPrezzoSuggerito(null);
           setLunghezza(null, isInit);
           setSconto1Required(false);
+          setExtraTubolare(false);
           return;
         }
         currentProd = prod;
@@ -672,6 +705,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
         setLunghezza(prod, isInit);
         const cat = catById[prod.id_categoria];
         setSconto1Required(cat && cat.codice === 'TUBOLARE');
+        setExtraTubolare(!!(cat && cat.codice === 'TUBOLARE'));
 
         if (!isInit) {
           // Auto-fill U.M. if not yet set
@@ -679,11 +713,17 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
             inputUm.value = prod.unita_misura_acquisto;
 
           showPrezzoSuggerito(null);
+          showPrezzoSuggerito(null, null, inputExtra, 'extra-suggerito');
           if (cat && cat.codice === 'TUBOLARE') {
             // Prezzo dal listino tubolare attivo (non più dalla colonna fissa sul prodotto)
-            const prezzo = prezzoTubolareMap[prod.id];
-            if (prezzo != null)
-              showPrezzoSuggerito(prezzo, listinoTubolareAttivo?.nome ? `(da ${listinoTubolareAttivo.nome})` : null);
+            // Base (soggetta agli sconti) ed extra (non scontato) dal listino
+            // tubolare attivo: solo suggeriti, da applicare esplicitamente.
+            const voce = prezzoTubolareMap[prod.id];
+            if (voce != null) {
+              const nota = listinoTubolareAttivo?.nome ? `(da ${listinoTubolareAttivo.nome})` : null;
+              showPrezzoSuggerito(voce.prezzo, nota);
+              showPrezzoSuggerito(voce.extra, nota, inputExtra, 'extra-suggerito');
+            }
           } else if (prod.prezzo_riferimento) {
             // Prezzo di listino: Mercantile/Travi in €/ton → convertito in €/kg
             let prezzoRif;
@@ -720,6 +760,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
 
       // On edit: show description without overwriting existing field values
       if (codiceIniziale) applyProdotto(codiceIniziale, true);
+      else setExtraTubolare(false);
 
       // Zincatura: alla scelta della voce, memorizza il prezzo (snapshot) e
       // mostra l'effetto sul prezzo materiale.
@@ -752,6 +793,9 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
       delete sendData.codice_prodotto;
       if (sendData.id_prodotto) sendData.id_prodotto = parseInt(sendData.id_prodotto);
       if (sendData.id_listino_zincatura) sendData.id_listino_zincatura = parseInt(sendData.id_listino_zincatura);
+      // Riga passata da TUBOLARE ad altro prodotto: azzera l'extra residuo
+      // (un campo vuoto non viene inviato e lascerebbe il valore precedente).
+      if (sendData.prezzo_extra == null && riga?.prezzo_extra != null) sendData.prezzo_extra = 0;
       // CBAM/Coperto: valore unico d'ordine, ereditato da ogni riga (non scelto dal compilatore)
       if (ord.cbam && ord.prezzo_cbam_kg != null) sendData.prezzo_cbam_kg = ord.prezzo_cbam_kg;
       if (ord.coperto && ord.sconto_coperto_kg != null) sendData.sconto_coperto_kg = ord.sconto_coperto_kg;

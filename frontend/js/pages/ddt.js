@@ -1,17 +1,18 @@
 import { api } from '../api.js';
 import { fmt, toast, setHeaderActions, setTitle, qualitaBadge, countLabel } from '../utils.js';
 import { renderTable, showFormModal, deleteWithConfirm } from '../components.js';
-import { calcolaPrezzi } from './ordini.js';
+import { calcolaPrezzi, fmtSconto } from './ordini.js';
 
 // Scomposizione prezzo per una riga DDT: il prezzo non è sulla riga DDT ma va
 // ereditato dalla riga ordine collegata (id_riga_ordine) — righe DDT non
 // legate a un ordine (ricevute fuori PO) non hanno prezzo. Riusa la stessa
-// scomposizione di ordini.js (base scontata + servizi/zincatura + CBAM +
-// Coperto) così i due punti restano coerenti.
+// scomposizione di ordini.js (listino + sconti 1-4 + servizi/zincatura +
+// CBAM + Coperto) così i due punti restano coerenti.
 function prezziRigaDdt(r) {
-  if (!r.id_riga_ordine) return { base: null, servizi: null, cbam: null, coperto: null, netto: null };
-  const { base, zinc, cbam, coperto, netto } = calcolaPrezzi(r);
-  return { base, servizi: zinc || null, cbam: cbam || null, coperto: coperto || null, netto };
+  if (!r.id_riga_ordine) return { listino: null, s1: null, s2: null, s3: null, s4: null, servizi: null, cbam: null, coperto: null, netto: null };
+  const { s1, s2, s3, s4, zinc, cbam, coperto, netto } = calcolaPrezzi(r);
+  const listino = r.prezzo_unitario != null ? Number(r.prezzo_unitario) : null;
+  return { listino, s1, s2, s3, s4, servizi: zinc || null, cbam: cbam || null, coperto: coperto || null, netto };
 }
 
 const LIST_COLS = [
@@ -41,17 +42,20 @@ const RIGHE_COLS = [
   { key: 'quantita_consegnata',  label: 'Q.tà',            fmt: v => fmt(v, 'number') },
   { key: 'unita_misura',         label: 'U.M.',            fmt: v => `<code>${v}</code>` },
   { key: 'quantita_kg',          label: 'kg',              fmt: v => fmt(v, 'number') },
-  { key: '_pBase',               label: 'Base',    class: 'text-end', filterable: false,
+  { key: '_listino', prezzoDett: true,             label: 'Listino', class: 'text-end', filterable: false,
     fmt: v => v != null ? fmt(v, 'number') : '<span class="text-muted">—</span>' },
-  { key: '_servizi',             label: 'Servizi', class: 'text-end', filterable: false,
+  { key: '_s1', prezzoDett: true,                  label: 'Sc.1',    class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
+  { key: '_s2', prezzoDett: true,                  label: 'Sc.2',    class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
+  { key: '_s3', prezzoDett: true,                  label: 'Sc.3',    class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
+  { key: '_s4', prezzoDett: true,                  label: 'Sc.4',    class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
+  { key: '_servizi', prezzoDett: true,             label: 'Servizi', class: 'text-end', filterable: false,
     fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
-  { key: '_cbam',                label: 'CBAM',    class: 'text-end', filterable: false,
+  { key: '_cbam', prezzoDett: true,                label: 'CBAM',    class: 'text-end', filterable: false,
     fmt: v => v ? `<span class="text-primary">+${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
-  { key: '_coperto',             label: 'Coperto', class: 'text-end', filterable: false,
+  { key: '_coperto', prezzoDett: true,             label: 'Coperto', class: 'text-end', filterable: false,
     fmt: v => v ? `<span class="${v < 0 ? 'text-success' : 'text-primary'}">${fmt(v, 'number')}</span>` : '<span class="text-muted">—</span>' },
-  { key: '_pNetto',              label: 'P.Netto', class: 'text-end', filterable: false,
+  { key: '_pNetto',              label: 'P.Netto', class: 'text-end', filterable: false, prezzoNetto: true,
     fmt: v => v != null ? `<strong>${fmt(v, 'number')}</strong>` : '<span class="text-muted">—</span>' },
-  { key: 'stato_ddt',            label: 'Stato DDT',       fmt: v => fmt(v, 'stato') },
   { key: '_fatturato',           label: 'Fatturato',       fmt: v => v },
 ];
 
@@ -59,6 +63,20 @@ const STATI_DDT = ['ricevuto','verificato','fatturato','contestato'];
 const LIST_LIMIT = 1000;
 
 let _righeViewActive = false;
+// Dettaglio prezzo (Listino, sconti, Servizi, CBAM, Coperto) aperto/chiuso:
+// condiviso tra vista Righe e dettaglio DDT, parte chiuso. P.Netto è sempre visibile.
+let _prezziAperti = false;
+
+function togglePrezziBtn() {
+  return `<button type="button" class="btn btn-outline-secondary btn-toggle-prezzi" data-toggle-prezzi
+    title="${_prezziAperti ? 'Nascondi' : 'Mostra'} dettaglio prezzo">${_prezziAperti ? '−' : '+'}</button>`;
+}
+
+function righeColumns() {
+  return RIGHE_COLS
+    .filter(c => _prezziAperti || !c.prezzoDett)
+    .map(c => c.prezzoNetto ? { ...c, label: togglePrezziBtn() + c.label } : c);
+}
 
 export async function renderDdt(container, id) {
   if (id) return renderDetail(container, id);
@@ -118,19 +136,28 @@ export async function renderDdt(container, id) {
       r._fatturato = r.fatturato
         ? '<span class="badge bg-success">sì</span>'
         : '<span class="badge bg-warning text-dark">no</span>';
-      const { base, servizi, cbam, coperto, netto } = prezziRigaDdt(r);
-      r._pBase = base; r._servizi = servizi; r._cbam = cbam; r._coperto = coperto; r._pNetto = netto;
+      const { listino, s1, s2, s3, s4, servizi, cbam, coperto, netto } = prezziRigaDdt(r);
+      r._listino = listino; r._s1 = s1; r._s2 = s2; r._s3 = s3; r._s4 = s4; r._servizi = servizi; r._cbam = cbam; r._coperto = coperto; r._pNetto = netto;
     });
     const wrap2 = document.createElement('div');
     wrap2.className = 'table-card';
-    wrap2.innerHTML = `<div class="table-toolbar"><span class="text-muted small">${righe.length} righe DDT</span></div><div id="tbl-righe"></div>`;
+    wrap2.innerHTML = `<div class="table-toolbar"><span class="text-muted small">${righe.length} righe DDT</span></div><div id="tbl-righe" class="table-scroll"></div>`;
     container.innerHTML = '';
     container.appendChild(wrap2);
-    renderTable(wrap2.querySelector('#tbl-righe'), {
-      columns: RIGHE_COLS,
+    const tbl = wrap2.querySelector('#tbl-righe');
+    const draw = () => renderTable(tbl, {
+      columns: righeColumns(),
       rows: righe,
       actions: { onDetail: (_id, row) => { window.location.hash = '#/ddt/' + row.id_ddt; } },
     });
+    // In capture per fermare il click prima che arrivi al <th> (che ordina la colonna).
+    tbl.addEventListener('click', e => {
+      if (!e.target.closest('[data-toggle-prezzi]')) return;
+      e.stopPropagation();
+      _prezziAperti = !_prezziAperti;
+      draw();
+    }, true);
+    draw();
     return;
   }
 
@@ -211,6 +238,14 @@ async function renderDetail(container, id) {
     <button class="btn btn-sm btn-primary" id="btn-add-riga"><i class="bi bi-plus-lg me-1"></i>Aggiungi Riga</button>`);
 
   container.innerHTML = ddtHeaderCard(ddt) + ddtRigheSection(ddt.righe, prodotti, ordiniList);
+  const righeCard = container.querySelector('#ddt-righe-card');
+  const btnPrezzi = righeCard.querySelector('[data-toggle-prezzi]');
+  btnPrezzi.onclick = () => {
+    _prezziAperti = !_prezziAperti;
+    righeCard.classList.toggle('prezzi-compressi', !_prezziAperti);
+    btnPrezzi.textContent = _prezziAperti ? '−' : '+';
+    btnPrezzi.title = `${_prezziAperti ? 'Nascondi' : 'Mostra'} dettaglio prezzo`;
+  };
 
   document.getElementById('btn-edit-header').onclick = () => {
     const fields = [
@@ -274,7 +309,7 @@ function ddtRigheSection(righe, prodotti, ordini) {
     const prodCell = prod
       ? `${prod.desc || prod.codice}${prod.desc && prod.codice ? `<br><small class="text-muted">${prod.codice}</small>` : ''}`
       : (r.descrizione_libera || '—');
-    const { base, servizi, cbam, coperto, netto } = prezziRigaDdt(r);
+    const { listino, s1, s2, s3, s4, servizi, cbam, coperto, netto } = prezziRigaDdt(r);
     return `<tr>
     <td class="text-center">${r.numero_riga}</td>
     <td>${prodCell}</td>
@@ -284,10 +319,14 @@ function ddtRigheSection(righe, prodotti, ordini) {
     <td class="text-end">${fmt(r.quantita_consegnata, 'number')}</td>
     <td><code>${r.unita_misura}</code></td>
     <td class="text-end">${fmt(r.quantita_kg, 'number')}</td>
-    <td class="text-end">${base != null ? fmt(base, 'number') : dash}</td>
-    <td class="text-end">${servizi ? `<span class="text-primary">+${fmt(servizi, 'number')}</span>` : dash}</td>
-    <td class="text-end">${cbam ? `<span class="text-primary">+${fmt(cbam, 'number')}</span>` : dash}</td>
-    <td class="text-end">${coperto ? `<span class="${coperto < 0 ? 'text-success' : 'text-primary'}">${fmt(coperto, 'number')}</span>` : dash}</td>
+    <td class="text-end col-prezzo-dett">${listino != null ? fmt(listino, 'number') : dash}</td>
+    <td class="text-end col-prezzo-dett">${fmtSconto(s1)}</td>
+    <td class="text-end col-prezzo-dett">${fmtSconto(s2)}</td>
+    <td class="text-end col-prezzo-dett">${fmtSconto(s3)}</td>
+    <td class="text-end col-prezzo-dett">${fmtSconto(s4)}</td>
+    <td class="text-end col-prezzo-dett">${servizi ? `<span class="text-primary">+${fmt(servizi, 'number')}</span>` : dash}</td>
+    <td class="text-end col-prezzo-dett">${cbam ? `<span class="text-primary">+${fmt(cbam, 'number')}</span>` : dash}</td>
+    <td class="text-end col-prezzo-dett">${coperto ? `<span class="${coperto < 0 ? 'text-success' : 'text-primary'}">${fmt(coperto, 'number')}</span>` : dash}</td>
     <td class="text-end">${netto != null ? `<strong>${fmt(netto, 'number')}</strong>` : dash}</td>
     <td>${r.lotto || '—'}</td>
     <td>${r.numero_colata || '—'}</td>
@@ -300,17 +339,17 @@ function ddtRigheSection(righe, prodotti, ordini) {
   </tr>`;
   }).join('');
 
-  return `<div class="table-card">
+  return `<div class="table-card${_prezziAperti ? '' : ' prezzi-compressi'}" id="ddt-righe-card">
     <div class="table-toolbar fw-semibold small"><i class="bi bi-list-ul me-2"></i>Righe DDT</div>
-    <div class="table-responsive">
+    <div class="table-scroll">
     <table class="table table-hover">
       <thead><tr>
         <th class="text-center">#</th><th>Prodotto</th><th>Ordine</th><th>Qualità</th><th class="text-end">Lung. mm</th>
         <th class="text-end">Q.tà</th><th>U.M.</th><th class="text-end">kg</th>
-        <th class="text-end">Base</th><th class="text-end">Servizi</th><th class="text-end">CBAM</th><th class="text-end">Coperto</th><th class="text-end">P.Netto</th>
+        ${['Listino','Sc.1','Sc.2','Sc.3','Sc.4','Servizi','CBAM','Coperto'].map(l => `<th class="text-end col-prezzo-dett">${l}</th>`).join('')}<th class="text-end">${togglePrezziBtn()}P.Netto</th>
         <th>Lotto</th><th>Colata</th><th>Certificato</th><th>Fatturato</th><th></th>
       </tr></thead>
-      <tbody>${tableRows || '<tr><td colspan="17" class="text-center text-muted py-3">Nessuna riga</td></tr>'}</tbody>
+      <tbody>${tableRows || '<tr><td colspan="21" class="text-center text-muted py-3">Nessuna riga</td></tr>'}</tbody>
     </table>
     </div>
   </div>`;

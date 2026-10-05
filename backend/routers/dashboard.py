@@ -187,7 +187,7 @@ async def tubolare_mensile(
     (Q403 grezzo / Q403Z zincato, tubo quadro 40x40x3, standard di settore):
     prezzo_normalizzato = prezzo netto per kg (incluso trasporto) − delta,
     dove delta = prezzo di listino del profilo acquistato meno quello del
-    riferimento, entrambi in €/kg. Il listino usato per calcolare i prezzi
+    riferimento, entrambi in €/kg (prezzo di listino = base + extra). Il listino usato per calcolare i prezzi
     (sia del profilo acquistato sia del riferimento) è quello effettivamente
     in vigore alla data dell'ordine, secondo la decorrenza impostata su
     listini_tubolare (data_inizio/data_fine — data_fine NULL = tuttora
@@ -219,8 +219,8 @@ async def tubolare_mensile(
             riferimento AS (
                 -- Prezzo €/kg di Q403 (grezzo) e Q403Z (zincato) nel listino di ogni ordine.
                 SELECT lo.id_ordine,
-                       MAX(CASE WHEN p.codice_prodotto = 'Q403'  THEN ltp.prezzo / NULLIF(cv.fattore_conversione, 0) END) AS prezzo_grezzo_kg,
-                       MAX(CASE WHEN p.codice_prodotto = 'Q403Z' THEN ltp.prezzo / NULLIF(cv.fattore_conversione, 0) END) AS prezzo_zincato_kg
+                       MAX(CASE WHEN p.codice_prodotto = 'Q403'  THEN (ltp.prezzo + ltp.extra) / NULLIF(cv.fattore_conversione, 0) END) AS prezzo_grezzo_kg,
+                       MAX(CASE WHEN p.codice_prodotto = 'Q403Z' THEN (ltp.prezzo + ltp.extra) / NULLIF(cv.fattore_conversione, 0) END) AS prezzo_zincato_kg
                 FROM listino_ordine lo
                 JOIN listino_tubolare_prezzi ltp ON ltp.id_listino = lo.id_listino AND ltp.qualita = 'prezzo_riferimento'
                 JOIN prodotti p ON p.id = ltp.id_prodotto AND p.codice_prodotto IN ('Q403', 'Q403Z')
@@ -230,7 +230,7 @@ async def tubolare_mensile(
             prezzi_prodotto AS (
                 -- Prezzo di listino €/kg di ciascun profilo, nel listino di ogni ordine.
                 SELECT lo.id_ordine, pp.id AS id_prodotto,
-                       ltp.prezzo / CASE WHEN pp.unita_misura_acquisto = 'kg' THEN 1 ELSE NULLIF(cv.fattore_conversione, 0) END AS prezzo_listino_kg
+                       (ltp.prezzo + ltp.extra) / CASE WHEN pp.unita_misura_acquisto = 'kg' THEN 1 ELSE NULLIF(cv.fattore_conversione, 0) END AS prezzo_listino_kg
                 FROM listino_ordine lo
                 JOIN listino_tubolare_prezzi ltp ON ltp.id_listino = lo.id_listino AND ltp.qualita = 'prezzo_riferimento'
                 JOIN prodotti pp ON pp.id = ltp.id_prodotto

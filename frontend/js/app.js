@@ -119,6 +119,20 @@ document.querySelectorAll('#ditta-switch button').forEach(btn => {
 });
 applicaDitta();
 
+// ── Colonna menu comprimibile (più spazio per le tabelle larghe) ────────────
+function applicaSidebar(compressa) {
+  document.body.classList.toggle('sidebar-compressa', compressa);
+  const btn = document.getElementById('sidebar-toggle');
+  btn.title = compressa ? 'Espandi menu' : 'Comprimi menu';
+  btn.innerHTML = `<i class="bi bi-chevron-double-${compressa ? 'right' : 'left'}"></i>`;
+}
+document.getElementById('sidebar-toggle').onclick = () => {
+  const compressa = !document.body.classList.contains('sidebar-compressa');
+  applicaSidebar(compressa);
+  try { localStorage.setItem('acciaio_sidebar_compressa', compressa ? '1' : ''); } catch {}
+};
+try { applicaSidebar(localStorage.getItem('acciaio_sidebar_compressa') === '1'); } catch { applicaSidebar(false); }
+
 async function mostraLogin() {
   const overlay = document.getElementById('login-overlay');
   overlay.classList.remove('d-none');

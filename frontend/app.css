@@ -70,9 +70,37 @@ body { display: flex; height: 100vh; overflow: hidden; background: #f0f2f5; }
 
 #sidebar .nav-link.active i { opacity: 1; }
 
+/* Tasto verticale per comprimere/espandere la colonna menu: alto tutto lo
+   schermo, ~1cm, stesso colore della sidebar della ditta (blu SRL, bianco ILF). */
+#sidebar-toggle {
+  width: 38px;
+  min-width: 38px;
+  height: 100vh;
+  border: none;
+  border-left: 1px solid rgba(255,255,255,.08);
+  padding: 0;
+  background: #1a2535;
+  color: #c8d0dc;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+#sidebar-toggle:hover { background: #24344a; color: #fff; }
+body[data-ditta="ditta1"] #sidebar-toggle {
+  background: #ffffff;
+  color: #1a2535;
+  border-left: none;
+  border-right: 1px solid #dee2e6;
+}
+body[data-ditta="ditta1"] #sidebar-toggle:hover { background: #eef3fb; color: #0d6efd; }
+body.sidebar-compressa #sidebar { display: none; }
+
 /* Main */
 #main-wrapper {
   flex: 1;
+  /* senza min-width:0 il flex item si allarga fino alla tabella più larga e
+     il contenuto viene tagliato a destra invece di scorrere */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -166,7 +194,9 @@ body[data-ditta="ditta1"] #ditta-switch button.active {
   background: #fff;
   border-radius: .75rem;
   box-shadow: 0 1px 4px rgba(0,0,0,.07);
-  overflow: hidden;
+  /* auto (non hidden): le tabelle più larghe dello schermo (es. dettaglio
+     prezzi espanso) scorrono lateralmente invece di essere tagliate */
+  overflow-x: auto;
 }
 
 .table-card .table { margin-bottom: 0; font-size: .85rem; }
@@ -296,3 +326,14 @@ body[data-ditta="ditta1"] #ditta-switch button.active {
   display: flex; align-items: center; justify-content: center;
   min-height: 200px;
 }
+
+/* Dettaglio prezzo comprimibile (righe DDT): pulsante +/- nell'intestazione
+   P.Netto; da chiuso nasconde Listino, sconti, Servizi, CBAM, Coperto. */
+.btn-toggle-prezzi { padding: .1rem .5rem; font-size: .9rem; font-weight: 700; line-height: 1.2; margin-right: .4rem; }
+
+/* Tabella larga e lunga: altezza limitata allo schermo così la barra di
+   scorrimento orizzontale è sempre visibile (non in fondo a centinaia di
+   righe); l'intestazione resta ferma mentre si scorre in verticale. */
+.table-scroll { overflow: auto; max-height: calc(100vh - var(--header-h) - 7rem); }
+.table-scroll thead { position: sticky; top: 0; z-index: 2; }
+.prezzi-compressi .col-prezzo-dett { display: none; }

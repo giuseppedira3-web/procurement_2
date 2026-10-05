@@ -79,9 +79,9 @@ function renderListinoProdotti(container, { prodotti, categorie, conversioni, li
 // --- TUBOLARE: listino madre + sconto + tolleranza + sub-tab per qualità ----
 
 const QUALITA_TUBOLARE = [
-  { key: 'prezzo_riferimento', label: 'S235JRH - DX51D', campoPrezzoImport: 'prezzo_riferimento' },
-  { key: 'prezzo_s275j0h',    label: 'S275J0H',  campoPrezzoImport: 'prezzo_s275j0h' },
-  { key: 'prezzo_s355j2h',    label: 'S355J2H',  campoPrezzoImport: 'prezzo_s355j2h' },
+  { key: 'prezzo_riferimento', label: 'S235JRH - DX51D' },
+  { key: 'prezzo_s275j0h',    label: 'S275J0H' },
+  { key: 'prezzo_s355j2h',    label: 'S355J2H' },
 ];
 
 async function renderTubolare(container, { cat, prodotti, conversioni, listini }) {
@@ -94,7 +94,7 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
   let qualitaAttiva = QUALITA_TUBOLARE[0];
 
   let listinoAttivo = listini.find(l => l.id === getListinoTubolareId()) || listini[0] || null;
-  let prezzoMap = {}; // `${id_prodotto}|${qualita}` -> prezzo
+  let prezzoMap = {}; // `${id_prodotto}|${qualita}` -> { prezzo (base), extra }
 
   const wrap = document.createElement('div');
   wrap.className = 'table-card';
@@ -125,7 +125,7 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
       </div>
       <span class="ms-auto text-muted small me-2" data-count></span>
       ${EXPORT_BTN}
-      <a href="${api.prodotti.prezzoRiferimentoTemplateUrl}" class="btn btn-outline-secondary btn-sm me-1" download title="Scarica template">
+      <a href="${api.listiniTubolare.importTemplateUrl}" class="btn btn-outline-secondary btn-sm me-1" download title="Scarica template">
         <i class="bi bi-download me-1"></i>Template
       </a>
       <button class="btn btn-outline-primary btn-sm me-1" data-action="import"><i class="bi bi-upload me-1"></i>Importa</button>
@@ -140,8 +140,9 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
     { key: 'descrizione',     label: 'Descrizione' },
     { key: '_peso',           label: `Peso teorico (kg/${cat.unita_misura_base})`, fmt: v => v != null ? Number(v).toFixed(3) : '<span class="text-muted">n.d.</span>' },
     { key: '_pesoCorretto',   label: `Peso corretto (kg/${cat.unita_misura_base})`, fmt: v => v != null ? Number(v).toFixed(3) : '<span class="text-muted">n.d.</span>' },
-    { key: '_listino',        label: `Listino €/${cat.unita_misura_base}`, fmt: v => fmt(v, 'currency') },
-    { key: '_listinoTon',     label: 'Listino €/ton',  fmt: v => v != null ? fmt(v, 'currency') : '<span class="text-muted">—</span>' },
+    { key: '_listino',        label: `Base €/${cat.unita_misura_base}`, fmt: v => fmt(v, 'currency') },
+    { key: '_listinoTon',     label: 'Base €/ton',  fmt: v => v != null ? fmt(v, 'currency') : '<span class="text-muted">—</span>' },
+    { key: '_extra',          label: `Extra €/${cat.unita_misura_base}`, fmt: v => v ? fmt(v, 'currency') : '<span class="text-muted">—</span>' },
     { key: '_scontato',       label: `Scontato €/${cat.unita_misura_base}`, fmt: v => fmt(v, 'currency') },
     { key: '_scontatoTon',    label: 'Scontato €/ton', fmt: v => v != null ? fmt(v, 'currency') : '<span class="text-muted">—</span>' },
   ];
@@ -163,7 +164,7 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
     if (!listinoAttivo) { prezzoMap = {}; return; }
     const rows = await api.listiniTubolare.prezzi(listinoAttivo.id);
     prezzoMap = {};
-    rows.forEach(r => { prezzoMap[prezzoKey(r.id_prodotto, r.qualita)] = r.prezzo; });
+    rows.forEach(r => { prezzoMap[prezzoKey(r.id_prodotto, r.qualita)] = { prezzo: r.prezzo, extra: r.extra }; });
   }
 
   function buildRows() {
@@ -171,18 +172,24 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
     const tolleranza = Number(cat.tolleranza_peso)  || 0;
     const campoPrezzo = qualitaAttiva.key;
     return prodottiCat
-      .map(p => ({ p, prezzo: prezzoMap[prezzoKey(p.id, campoPrezzo)] }))
-      .filter(({ prezzo }) => prezzo != null)
-      .map(({ p, prezzo }) => {
-        const listino    = Number(prezzo);
+      .map(p => ({ p, voce: prezzoMap[prezzoKey(p.id, campoPrezzo)] }))
+      .filter(({ voce }) => voce != null)
+      .map(({ p, voce }) => {
+        // Prezzo netto = base × sconto + extra (l'extra non è soggetto a sconto;
+        // vale 0 sui listini precedenti alla scomposizione base/extra).
+        const listino    = Number(voce.prezzo);
+        const extra      = Number(voce.extra) || 0;
         const peso       = pesoMap[p.id] ?? null;
         const pesoCorretto = peso != null ? peso * (1 + tolleranza / 100) : null;
-        const scontato   = listino * (1 + sconto / 100);
+        const scontato   = listino * (1 + sconto / 100) + extra;
         return {
           ...p,
+          [campoPrezzo]: listino,
+          extra,
           _peso: peso,
           _pesoCorretto: pesoCorretto,
           _listino: listino,
+          _extra: extra,
           _scontato: scontato,
           _listinoTon:  pesoCorretto ? (listino   / pesoCorretto) * 1000 : null,
           _scontatoTon: pesoCorretto ? (scontato  / pesoCorretto) * 1000 : null,
@@ -297,18 +304,22 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
   wrap.querySelector('[data-action="export"]').onclick = () =>
     downloadCsv(`listino_TUBOLARE_${qualitaAttiva.label}_${(listinoAttivo?.nome || '').replace(/\s+/g, '_').replace(/\//g, '-')}.csv`, columns, buildRows());
 
-  wrap.querySelector('[data-action="import"]').onclick = () => showImportModal({
-    title: `Importa Listino — TUBOLARE ${qualitaAttiva.label} — ${listinoAttivo?.nome || ''}`,
-    templateUrl: api.prodotti.prezzoRiferimentoTemplateUrl,
-    importFn: file => api.prodotti.importPrezzoRiferimento(cat.id, file, qualitaAttiva.campoPrezzoImport, listinoAttivo?.id),
-    onSuccess: () => location.reload(),
-    helpHtml: `<p class="small text-muted">
-      Una riga per prodotto. Campi: <code>codice_prodotto</code>, <code>descrizione</code>
-      (obbligatoria solo per prodotti nuovi — solo per S235JRH), <code>prezzo_riferimento</code>
-      — prezzo di listino in €/${cat.unita_misura_base}, aggiunto al listino <strong>${listinoAttivo?.nome || ''}</strong> selezionato in intestazione.<br>
-      ${qualitaAttiva.key !== 'prezzo_riferimento' ? '<strong>Nota:</strong> per questa qualità il prodotto deve già esistere in anagrafica.' : ''}
-    </p>`,
-  });
+  wrap.querySelector('[data-action="import"]').onclick = () => {
+    if (!listinoAttivo) { toast('Nessun listino selezionato', 'warning'); return; }
+    showImportModal({
+      title: `Importa Prezzi — TUBOLARE — ${listinoAttivo.nome}`,
+      templateUrl: api.listiniTubolare.importTemplateUrl,
+      importFn: file => api.listiniTubolare.importPrezzi(listinoAttivo.id, file, qualitaAttiva.key),
+      onSuccess: () => refreshAll(),
+      helpHtml: `<p class="small text-muted">
+        Una riga per prodotto e qualità, caricata nel listino <strong>${listinoAttivo.nome}</strong>. Colonne:<br>
+        <code>CODICE</code> — codice di un prodotto TUBOLARE già in anagrafica (la descrizione viene da lì);<br>
+        <code>QUALITA</code> — S235JRH (o DX51D), S275J0H, S355J2H; vuota = qualità attiva (<strong>${qualitaAttiva.label}</strong>);<br>
+        <code>BASE €/M</code> — base di listino in €/${cat.unita_misura_base}, soggetta a sconto;<br>
+        <code>EXTRA €/M</code> — in €/${cat.unita_misura_base}, sommato alla base scontata; vuoto = extra invariato (0 per una voce nuova).
+      </p>`,
+    });
+  };
 
   // Campi form per la qualità attiva
   function getFields() {
@@ -316,7 +327,8 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
     return [
       { name: 'codice_prodotto', label: 'Codice Prodotto', type: 'text', required: true, col: 6 },
       { name: 'descrizione',     label: 'Descrizione',     type: 'text', required: isDefault, col: 6 },
-      { name: qualitaAttiva.key, label: `Prezzo Listino ${qualitaAttiva.label} (€/${cat.unita_misura_base})`, type: 'decimal', required: true, col: 6, step: '0.0001' },
+      { name: qualitaAttiva.key, label: `Base ${qualitaAttiva.label} (€/${cat.unita_misura_base})`, type: 'decimal', required: true, col: 3, step: '0.0001' },
+      { name: 'extra',           label: `Extra (€/${cat.unita_misura_base})`, type: 'decimal', col: 3, step: '0.0001' },
       { name: 'id_listino',      label: 'Listino',         type: 'select', required: true, col: 6,
         options: listini.map(l => ({ value: l.id, label: l.nome })), value: listinoAttivo?.id },
     ];
@@ -337,7 +349,7 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
           if (!existing) { toast('Prodotto non trovato in anagrafica TUBOLARE', 'danger'); return; }
           idProdotto = existing.id;
         }
-        await api.listiniTubolare.setPrezzo(idListinoScelto, { id_prodotto: idProdotto, qualita: qualitaAttiva.key, prezzo: data[qualitaAttiva.key] });
+        await api.listiniTubolare.setPrezzo(idListinoScelto, { id_prodotto: idProdotto, qualita: qualitaAttiva.key, prezzo: data[qualitaAttiva.key], extra: data.extra || 0 });
         setListinoTubolareId(idListinoScelto);
         toast('Prodotto aggiornato'); location.reload();
       },
@@ -352,7 +364,7 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
       fields: editFields, values: row,
       onSave: async data => {
         if (isDefault) await api.prodotti.update(id, { descrizione: data.descrizione });
-        await api.listiniTubolare.setPrezzo(listinoAttivo.id, { id_prodotto: id, qualita: qualitaAttiva.key, prezzo: data[qualitaAttiva.key] });
+        await api.listiniTubolare.setPrezzo(listinoAttivo.id, { id_prodotto: id, qualita: qualitaAttiva.key, prezzo: data[qualitaAttiva.key], extra: data.extra || 0 });
         toast('Prodotto aggiornato'); location.reload();
       },
     });

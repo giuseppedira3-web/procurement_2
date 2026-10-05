@@ -51,7 +51,8 @@ const NOTE_LOGICA = {
     c'è un'unica componente "comparabile" da isolare. Si normalizza quindi ogni
     acquisto rispetto al profilo di riferimento del settore — Tubo Quadro 40x40x3
     (Q403 grezzo, Q403Z zincato) — sottraendo il delta di listino fra il profilo
-    comprato e il riferimento (entrambi in €/kg, convertiti con conversioni_peso).
+    comprato e il riferimento (entrambi in €/kg, convertiti con conversioni_peso;
+    prezzo di listino = base + extra).
     Il listino usato è quello in vigore alla data di ciascun ordine, secondo la
     decorrenza impostata in Listino Prezzi; ordini fuori da qualunque decorrenza,
     o profili privi di prezzo/conversione, sono esclusi dalla media del prezzo

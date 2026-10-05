@@ -126,7 +126,7 @@ async def list_all_righe(
             r.quantita_ordinata, r.unita_misura, r.quantita_kg,
             r.prezzo_unitario, r.importo_riga,
             r.sconto_percentuale, r.sconto_2_percentuale, r.sconto_3_percentuale, r.sconto_4_percentuale,
-            r.prezzo_zincatura, r.prezzo_cbam_kg, r.sconto_coperto_kg,
+            r.prezzo_zincatura, r.prezzo_cbam_kg, r.sconto_coperto_kg, r.prezzo_extra,
             t.prezzo_trasporto_kg,
             r.quantita_consegnata, r.quantita_fatturata, r.stato_riga,
             r.qualita_acciaio, r.lunghezza_mm,
@@ -218,6 +218,7 @@ async def update_ordine(id: int, body: OrdineUpdate, conn: asyncpg.Connection = 
                     + quantita_ordinata * COALESCE(prezzo_zincatura,0)
                     + quantita_ordinata * COALESCE(prezzo_cbam_kg,0)
                     + quantita_ordinata * COALESCE(sconto_coperto_kg,0)
+                    + quantita_ordinata * COALESCE(prezzo_extra,0)
                 , 2)
                 WHERE id_ordine = $1
                 """,
@@ -240,10 +241,14 @@ async def delete_ordine(id: int, conn: asyncpg.Connection = Depends(get_conn)):
 def _calcola_importo(qta: Decimal, prezzo: Decimal, *sconti: Decimal,
                      prezzo_zincatura: Decimal | None = None,
                      prezzo_cbam_kg: Decimal | None = None,
-                     sconto_coperto_kg: Decimal | None = None) -> Decimal:
+                     sconto_coperto_kg: Decimal | None = None,
+                     prezzo_extra: Decimal | None = None) -> Decimal:
     result = qta * prezzo
     for s in sconti:
         result *= (1 + s / 100)
+    # Extra listino TUBOLARE: sommato dopo gli sconti, non scontato
+    if prezzo_extra:
+        result += qta * prezzo_extra
     if prezzo_zincatura:
         result += qta * prezzo_zincatura
     if prezzo_cbam_kg:
@@ -280,6 +285,8 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
         )
         if cat_codice == "TUBOLARE" and "sconto_percentuale" not in body.model_fields_set:
             raise HTTPException(422, "Sc.1% obbligatorio per i prodotti TUBOLARE")
+        if cat_codice == "TUBOLARE" and body.prezzo_extra is None:
+            raise HTTPException(422, "Extra obbligatorio per i prodotti TUBOLARE")
     importo = _calcola_importo(
         body.quantita_ordinata, body.prezzo_unitario,
         body.sconto_percentuale, body.sconto_2_percentuale,
@@ -287,6 +294,7 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
         prezzo_zincatura=body.prezzo_zincatura,
         prezzo_cbam_kg=body.prezzo_cbam_kg,
         sconto_coperto_kg=body.sconto_coperto_kg,
+        prezzo_extra=body.prezzo_extra,
     )
     try:
         row = await conn.fetchrow(
@@ -298,9 +306,9 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
                 sconto_percentuale, sconto_2_percentuale, sconto_3_percentuale, sconto_4_percentuale,
                 importo_riga, tolleranza_chiusura_kg,
                 qualita_acciaio, lunghezza_mm,
-                id_listino_zincatura, prezzo_zincatura, prezzo_cbam_kg, sconto_coperto_kg,
+                id_listino_zincatura, prezzo_zincatura, prezzo_cbam_kg, sconto_coperto_kg, prezzo_extra,
                 data_consegna_prevista, note
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
             RETURNING *
             """,
             id, body.numero_riga, body.id_prodotto, body.descrizione_libera,
@@ -310,7 +318,7 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
             body.sconto_3_percentuale, body.sconto_4_percentuale,
             importo, body.tolleranza_chiusura_kg,
             body.qualita_acciaio, body.lunghezza_mm,
-            body.id_listino_zincatura, body.prezzo_zincatura, body.prezzo_cbam_kg, body.sconto_coperto_kg,
+            body.id_listino_zincatura, body.prezzo_zincatura, body.prezzo_cbam_kg, body.sconto_coperto_kg, body.prezzo_extra,
             body.data_consegna_prevista, body.note,
         )
     except asyncpg.UniqueViolationError:
@@ -346,9 +354,20 @@ async def update_riga_ordine(
     cbam_kg  = Decimal(str(cbam_raw)) if cbam_raw is not None else None
     coperto_raw = updates.get("sconto_coperto_kg", row["sconto_coperto_kg"])
     coperto_kg  = Decimal(str(coperto_raw)) if coperto_raw is not None else None
+    extra_raw   = updates.get("prezzo_extra", row["prezzo_extra"])
+    extra       = Decimal(str(extra_raw)) if extra_raw is not None else None
+    id_prodotto = updates.get("id_prodotto", row["id_prodotto"])
+    if id_prodotto is not None and extra is None:
+        cat_codice = await conn.fetchval(
+            "SELECT cp.codice FROM prodotti p JOIN categorie_prodotto cp ON cp.id = p.id_categoria WHERE p.id = $1",
+            id_prodotto,
+        )
+        if cat_codice == "TUBOLARE":
+            raise HTTPException(422, "Extra obbligatorio per i prodotti TUBOLARE")
     updates["importo_riga"] = _calcola_importo(
         qta, prezzo, s1, s2, s3, s4,
         prezzo_zincatura=pz, prezzo_cbam_kg=cbam_kg, sconto_coperto_kg=coperto_kg,
+        prezzo_extra=extra,
     )
     sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(updates))
     updated = await conn.fetchrow(
