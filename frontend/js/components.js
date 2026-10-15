@@ -26,8 +26,11 @@ function escapeAttr(s) {
  * columns: [{ key, label, fmt?, width?, class?, sortable?, filterable? }]
  * rows: array of objects
  * actions: { onEdit?, onDelete?, onDetail?, extra? }
+ * pageSize: se indicato, disegna solo le prime N righe (dopo filtri e
+ *   ordinamento, che restano applicati a tutte le righe) con un pulsante per
+ *   mostrarne altre. Serve per le viste con migliaia di righe.
  */
-export function renderTable(container, { columns, rows, actions = {}, emptyMsg = 'Nessun elemento trovato', defaultSort = null }) {
+export function renderTable(container, { columns, rows, actions = {}, emptyMsg = 'Nessun elemento trovato', defaultSort = null, pageSize = null }) {
   if (!rows.length) {
     container.innerHTML = `<div class="text-center py-5 text-muted"><i class="bi bi-inbox fs-1 d-block mb-2"></i>${emptyMsg}</div>`;
     return;
@@ -38,6 +41,7 @@ export function renderTable(container, { columns, rows, actions = {}, emptyMsg =
     state = defaultSort
       ? { sortKey: defaultSort.key, sortDir: defaultSort.dir === 'desc' ? -1 : 1, filters: {} }
       : { sortKey: null, sortDir: 1, filters: {} };
+    state.limit = pageSize;
     _tableState.set(container, state);
   }
 
@@ -116,6 +120,32 @@ export function renderTable(container, { columns, rows, actions = {}, emptyMsg =
     return displayRows.map(rowHtml).join('');
   }
 
+  // Righe effettivamente disegnate (limitate a state.limit se c'è pageSize).
+  function visibleRows(displayRows) {
+    return pageSize && state.limit < displayRows.length ? displayRows.slice(0, state.limit) : displayRows;
+  }
+
+  function moreHtml(displayRows) {
+    if (!pageSize || displayRows.length <= state.limit) return '';
+    const resto = displayRows.length - state.limit;
+    return `<div class="d-flex align-items-center justify-content-center gap-2 py-2 small text-muted">
+      Mostrate ${state.limit.toLocaleString('it-IT')} di ${displayRows.length.toLocaleString('it-IT')} righe
+      <button class="btn btn-sm btn-outline-secondary" data-more="page">Mostra altre ${Math.min(pageSize, resto)}</button>
+      <button class="btn btn-sm btn-outline-secondary" data-more="all">Mostra tutte</button>
+    </div>`;
+  }
+
+  function drawMore(displayRows) {
+    const box = container.querySelector('[data-more-box]');
+    box.innerHTML = moreHtml(displayRows);
+    box.querySelectorAll('[data-more]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.limit = btn.dataset.more === 'all' ? displayRows.length : state.limit + pageSize;
+        redrawBody();
+      });
+    });
+  }
+
   function bindRowActions(displayRows) {
     container.querySelectorAll('tbody [data-action]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -133,13 +163,16 @@ export function renderTable(container, { columns, rows, actions = {}, emptyMsg =
   // filtri, per non perdere il focus sugli input).
   function redrawBody() {
     const displayRows = getDisplayRows();
-    container.querySelector('tbody').innerHTML = bodyHtml(displayRows);
-    bindRowActions(displayRows);
+    const shown = visibleRows(displayRows);
+    container.querySelector('tbody').innerHTML = bodyHtml(shown);
+    bindRowActions(shown);
+    drawMore(displayRows);
   }
 
   // Ridisegna l'intera tabella (intestazioni, filtri e corpo).
   function redraw() {
     const displayRows = getDisplayRows();
+    const shown = visibleRows(displayRows);
 
     const headCells = columns.map(c => {
       const sortable = c.sortable !== false;
@@ -164,14 +197,16 @@ export function renderTable(container, { columns, rows, actions = {}, emptyMsg =
           <tr>${headCells}</tr>
           <tr class="table-filter-row">${filterCells}</tr>
         </thead>
-        <tbody>${bodyHtml(displayRows)}</tbody>
-      </table>`;
+        <tbody>${bodyHtml(shown)}</tbody>
+      </table>
+      <div data-more-box></div>`;
 
     container.querySelectorAll('th[data-sort-key]').forEach(th => {
       th.addEventListener('click', () => {
         const key = th.dataset.sortKey;
         if (state.sortKey === key) state.sortDir = -state.sortDir;
         else { state.sortKey = key; state.sortDir = 1; }
+        state.limit = pageSize;
         redraw();
       });
     });
@@ -179,11 +214,13 @@ export function renderTable(container, { columns, rows, actions = {}, emptyMsg =
     container.querySelectorAll('input[data-filter-key]').forEach(input => {
       input.addEventListener('input', () => {
         state.filters[input.dataset.filterKey] = input.value;
+        state.limit = pageSize;
         redrawBody();
       });
     });
 
-    bindRowActions(displayRows);
+    bindRowActions(shown);
+    drawMore(displayRows);
   }
 
   redraw();

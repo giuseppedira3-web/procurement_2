@@ -59,6 +59,8 @@ function fmtCompletamento(v) {
 let _righeViewActive = false;
 
 const LIST_LIMIT = 1000;
+// Vista Righe: righe disegnate per volta (filtri e ordinamento su tutte).
+const RIGHE_PAGE_SIZE = 100;
 const STATI_ORDINE = ['confermato','parzialmente_consegnato','completato','annullato'];
 const INCOTERM = ['EXW','FOB','CIF','Reso','Partenza'];
 
@@ -282,6 +284,7 @@ async function renderRigheView(container, fornitori, fornMap, qualita = []) {
       columns,
       rows: shown,
       defaultSort: { key: 'data_ordine', dir: 'desc' },
+      pageSize: RIGHE_PAGE_SIZE,
       actions: {
         onDetail: (id, row) => { window.location.hash = `#/ordini/${row.id_ordine}`; },
       },

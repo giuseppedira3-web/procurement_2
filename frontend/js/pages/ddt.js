@@ -61,6 +61,8 @@ const RIGHE_COLS = [
 
 const STATI_DDT = ['ricevuto','verificato','fatturato','contestato'];
 const LIST_LIMIT = 1000;
+// Vista Righe: righe disegnate per volta (filtri e ordinamento su tutte).
+const RIGHE_PAGE_SIZE = 100;
 
 let _righeViewActive = false;
 // Dettaglio prezzo (Listino, sconti, Servizi, CBAM, Coperto) aperto/chiuso:
@@ -148,6 +150,7 @@ export async function renderDdt(container, id) {
     const draw = () => renderTable(tbl, {
       columns: righeColumns(),
       rows: righe,
+      pageSize: RIGHE_PAGE_SIZE,
       actions: { onDetail: (_id, row) => { window.location.hash = '#/ddt/' + row.id_ddt; } },
     });
     // In capture per fermare il click prima che arrivi al <th> (che ordina la colonna).
