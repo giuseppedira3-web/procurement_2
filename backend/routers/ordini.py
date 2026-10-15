@@ -10,6 +10,130 @@ from schemas import (
 
 router = APIRouter(prefix="/ordini", tags=["Ordini di Acquisto"])
 
+FATTURA_ACC_FIELDS = (
+    "fattura_accompagnatoria", "numero_fattura_accompagnatoria", "data_fattura_accompagnatoria",
+)
+
+# Colonne della fattura accompagnatoria lette dal DDT collegato (alias fa).
+FATTURA_ACC_SELECT = """
+    fa.id IS NOT NULL AS fattura_accompagnatoria,
+    fa.numero_ddt_fornitore AS numero_fattura_accompagnatoria,
+    fa.data_ddt AS data_fattura_accompagnatoria,
+    fa.codice_ddt AS codice_ddt_accompagnatoria"""
+
+
+# ---------------------------------------------------------------------------
+# Fattura accompagnatoria: DDT generato e tenuto allineato all'ordine
+# ---------------------------------------------------------------------------
+
+async def _crea_ddt_accompagnatoria(conn: asyncpg.Connection, ordine, numero: str, data) -> int:
+    """Crea il DDT della fattura accompagnatoria, lo collega all'ordine e
+    genera le righe DDT per le righe ordine già presenti."""
+    try:
+        codice, _, _ = await genera_codice(conn, "ddt", ordine["id_fornitore"])
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e))
+    try:
+        id_ddt = await conn.fetchval(
+            """
+            INSERT INTO ddt (
+                codice_ddt, id_fornitore, numero_ddt_fornitore, data_ddt, data_ricezione,
+                id_vettore, stato, ditta, note
+            ) VALUES ($1,$2,$3,$4,$4,$5,'ricevuto',$6,$7)
+            RETURNING id
+            """,
+            codice, ordine["id_fornitore"], numero.strip(), data,
+            ordine["id_vettore"], ordine["ditta"],
+            f"Fattura accompagnatoria — ordine {ordine['codice_ordine']}",
+        )
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(409, f"Esiste già un DDT n° {numero.strip()} per questo fornitore")
+    await conn.execute(
+        "UPDATE ordini SET id_ddt_accompagnatoria = $1 WHERE id = $2", id_ddt, ordine["id"],
+    )
+    righe = await conn.fetch("SELECT * FROM ordini_righe WHERE id_ordine = $1 ORDER BY numero_riga", ordine["id"])
+    for riga in righe:
+        await _sync_riga_ddt_accompagnatoria(conn, id_ddt, riga)
+    return id_ddt
+
+
+async def _sync_riga_ddt_accompagnatoria(conn: asyncpg.Connection, id_ddt: int, riga) -> None:
+    """Crea o aggiorna la riga del DDT accompagnatoria con la stessa quantità
+    della riga ordine: il trigger su ddt_righe chiude la riga ordine."""
+    updated = await conn.execute(
+        """
+        UPDATE ddt_righe SET
+            id_prodotto = $3, descrizione_libera = $4,
+            quantita_consegnata = $5, unita_misura = $6, quantita_kg = $7
+        WHERE id_ddt = $1 AND id_riga_ordine = $2
+        """,
+        id_ddt, riga["id"], riga["id_prodotto"], riga["descrizione_libera"],
+        riga["quantita_ordinata"], riga["unita_misura"], riga["quantita_kg"],
+    )
+    if updated != "UPDATE 0":
+        return
+    await conn.execute(
+        """
+        INSERT INTO ddt_righe (
+            id_ddt, numero_riga, id_ordine, id_riga_ordine, id_prodotto,
+            descrizione_libera, quantita_consegnata, unita_misura, quantita_kg
+        ) VALUES (
+            $1, (SELECT COALESCE(MAX(numero_riga), 0) + 1 FROM ddt_righe WHERE id_ddt = $1),
+            $2, $3, $4, $5, $6, $7, $8
+        )
+        """,
+        id_ddt, riga["id_ordine"], riga["id"], riga["id_prodotto"], riga["descrizione_libera"],
+        riga["quantita_ordinata"], riga["unita_misura"], riga["quantita_kg"],
+    )
+
+
+async def _elimina_ddt_accompagnatoria(conn: asyncpg.Connection, id_ddt: int) -> None:
+    fatturato = await conn.fetchval(
+        """SELECT d.stato = 'fatturato' OR EXISTS (
+               SELECT 1 FROM ddt_righe dr WHERE dr.id_ddt = d.id AND dr.fatturato)
+           FROM ddt d WHERE d.id = $1""",
+        id_ddt,
+    )
+    if fatturato:
+        raise HTTPException(422, "Il DDT della fattura accompagnatoria risulta già fatturato")
+    await conn.execute("DELETE FROM ddt WHERE id = $1", id_ddt)
+
+
+async def _aggiorna_fattura_accompagnatoria(conn: asyncpg.Connection, ordine, fattura: dict) -> None:
+    """Applica il flag dalla modifica testata: attivato → crea il DDT,
+    disattivato → lo elimina, altrimenti aggiorna numero/data sul DDT."""
+    flag = fattura.get("fattura_accompagnatoria")
+    numero = (fattura.get("numero_fattura_accompagnatoria") or "").strip()
+    data = fattura.get("data_fattura_accompagnatoria")
+    id_ddt = ordine["id_ddt_accompagnatoria"]
+    if flag is False:
+        if id_ddt:
+            await _elimina_ddt_accompagnatoria(conn, id_ddt)
+        return
+    if flag and (not numero or data is None):
+        raise HTTPException(422, "Numero e data della fattura accompagnatoria obbligatori")
+    if id_ddt is None:
+        if flag:
+            await _crea_ddt_accompagnatoria(conn, ordine, numero, data)
+        return
+    try:
+        await conn.execute(
+            """UPDATE ddt SET
+                   numero_ddt_fornitore = COALESCE($2, numero_ddt_fornitore),
+                   data_ddt = COALESCE($3, data_ddt),
+                   data_ricezione = COALESCE($3, data_ricezione)
+               WHERE id = $1""",
+            id_ddt, numero or None, data,
+        )
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(409, f"Esiste già un DDT n° {numero} per questo fornitore")
+
+
+async def _get_riga(conn: asyncpg.Connection, riga_id: int) -> dict:
+    # Riletta dopo la sincronizzazione col DDT: il trigger ha aggiornato
+    # quantita_consegnata e stato_riga.
+    return dict(await conn.fetchrow("SELECT * FROM ordini_righe WHERE id = $1", riga_id))
+
 
 # ---------------------------------------------------------------------------
 # Testata ordine
@@ -54,6 +178,7 @@ async def list_ordini(
                 mf.comune AS comune_origine,
                 v.ragione_sociale AS nome_vettore,
                 z.ragione_sociale AS nome_zincheria,
+                {FATTURA_ACC_SELECT},
                 (SELECT ROUND(100.0 * SUM(r.quantita_consegnata)
                              / NULLIF(SUM(r.quantita_ordinata), 0), 1)
                    FROM ordini_righe r WHERE r.id_ordine = o.id) AS perc_consegnato
@@ -61,6 +186,7 @@ async def list_ordini(
             LEFT JOIN magazzini_fornitore mf ON mf.id = o.id_magazzino_origine
             LEFT JOIN vettori v ON v.id = o.id_vettore
             LEFT JOIN fornitori z ON z.id = o.id_zincheria
+            LEFT JOIN ddt fa ON fa.id = o.id_ddt_accompagnatoria
             {where} ORDER BY o.anno DESC, o.numero_progressivo DESC LIMIT ${n-1} OFFSET ${n}""",
         *params,
     )
@@ -96,7 +222,16 @@ async def create_ordine(body: OrdineCreate, conn: asyncpg.Connection = Depends(g
             )
         except asyncpg.ForeignKeyViolationError as e:
             raise HTTPException(422, detail=str(e))
-    result = dict(row)
+        result = dict(row)
+        if body.fattura_accompagnatoria:
+            result["id_ddt_accompagnatoria"] = await _crea_ddt_accompagnatoria(
+                conn, row, body.numero_fattura_accompagnatoria, body.data_fattura_accompagnatoria,
+            )
+            result.update(
+                fattura_accompagnatoria=True,
+                numero_fattura_accompagnatoria=body.numero_fattura_accompagnatoria.strip(),
+                data_fattura_accompagnatoria=body.data_fattura_accompagnatoria,
+            )
     result["righe"] = []
     return result
 
@@ -148,14 +283,16 @@ async def list_all_righe(
 @router.get("/{id}", response_model=OrdineConRighe)
 async def get_ordine(id: int, conn: asyncpg.Connection = Depends(get_conn)):
     row = await conn.fetchrow(
-        """SELECT o.*,
+        f"""SELECT o.*,
                mf.comune AS comune_origine,
                v.ragione_sociale AS nome_vettore,
-               z.ragione_sociale AS nome_zincheria
+               z.ragione_sociale AS nome_zincheria,
+               {FATTURA_ACC_SELECT}
            FROM ordini o
            LEFT JOIN magazzini_fornitore mf ON mf.id = o.id_magazzino_origine
            LEFT JOIN vettori v ON v.id = o.id_vettore
            LEFT JOIN fornitori z ON z.id = o.id_zincheria
+           LEFT JOIN ddt fa ON fa.id = o.id_ddt_accompagnatoria
            WHERE o.id = $1""",
         id,
     )
@@ -168,27 +305,53 @@ async def get_ordine(id: int, conn: asyncpg.Connection = Depends(get_conn)):
            WHERE r.id_ordine = $1 ORDER BY r.numero_riga""",
         id,
     )
+    # DDT con almeno una riga su questo ordine (collegata alla testata o a
+    # una sua riga), con i kg consegnati per questo ordine.
+    ddt_collegati = await conn.fetch(
+        """SELECT d.id, d.codice_ddt, d.numero_ddt_fornitore, d.data_ddt, d.stato,
+                  SUM(COALESCE(dr.quantita_kg,
+                      CASE WHEN dr.unita_misura = 'kg' THEN dr.quantita_consegnata END)) AS kg_consegnati
+           FROM ddt_righe dr
+           JOIN ddt d ON d.id = dr.id_ddt
+           LEFT JOIN ordini_righe r ON r.id = dr.id_riga_ordine
+           WHERE dr.id_ordine = $1 OR r.id_ordine = $1
+           GROUP BY d.id
+           ORDER BY d.data_ddt, d.id""",
+        id,
+    )
     result = dict(row)
     result["righe"] = [dict(r) for r in righe]
+    result["ddt_collegati"] = [dict(d) for d in ddt_collegati]
     return result
 
 
 @router.patch("/{id}", response_model=OrdineResponse)
 async def update_ordine(id: int, body: OrdineUpdate, conn: asyncpg.Connection = Depends(get_conn)):
     updates = body.model_dump(exclude_unset=True)
-    if not updates:
+    # I campi fattura accompagnatoria vivono sul DDT collegato, non su ordini.
+    fattura = {k: updates.pop(k) for k in FATTURA_ACC_FIELDS if k in updates}
+    if not updates and not fattura:
         raise HTTPException(400, "Nessun campo da aggiornare")
     sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(updates))
     async with conn.transaction():
         try:
-            row = await conn.fetchrow(
-                f"UPDATE ordini SET {sets} WHERE id = $1 RETURNING *",
-                id, *updates.values(),
-            )
+            if updates:
+                row = await conn.fetchrow(
+                    f"UPDATE ordini SET {sets} WHERE id = $1 RETURNING *",
+                    id, *updates.values(),
+                )
+            else:
+                row = await conn.fetchrow("SELECT * FROM ordini WHERE id = $1", id)
         except asyncpg.CheckViolationError as e:
             raise HTTPException(422, detail=str(e))
         if not row:
             raise HTTPException(404)
+        if fattura:
+            await _aggiorna_fattura_accompagnatoria(conn, row, fattura)
+        if "ditta" in updates and row["id_ddt_accompagnatoria"]:
+            await conn.execute(
+                "UPDATE ddt SET ditta = $1 WHERE id = $2", row["ditta"], row["id_ddt_accompagnatoria"],
+            )
         # CBAM/Coperto: la tariffa è impostata una volta in testata (spesso
         # una stima iniziale) e finché non si tocca la riga resta agganciata
         # al valore di testata — se qui cambia tariffa/sconto o flag,
@@ -229,7 +392,13 @@ async def update_ordine(id: int, body: OrdineUpdate, conn: asyncpg.Connection = 
 
 @router.delete("/{id}", status_code=204)
 async def delete_ordine(id: int, conn: asyncpg.Connection = Depends(get_conn)):
-    result = await conn.execute("DELETE FROM ordini WHERE id = $1", id)
+    async with conn.transaction():
+        # Il DDT della fattura accompagnatoria esiste solo per l'ordine: va via
+        # con lui (e le sue righe, che altrimenti bloccherebbero la delete).
+        id_ddt = await conn.fetchval("SELECT id_ddt_accompagnatoria FROM ordini WHERE id = $1", id)
+        if id_ddt:
+            await _elimina_ddt_accompagnatoria(conn, id_ddt)
+        result = await conn.execute("DELETE FROM ordini WHERE id = $1", id)
     if result == "DELETE 0":
         raise HTTPException(404)
 
@@ -275,7 +444,7 @@ async def list_righe_ordine(id: int, conn: asyncpg.Connection = Depends(get_conn
 
 @router.post("/{id}/righe", response_model=OrdineRigaResponse, status_code=201)
 async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connection = Depends(get_conn)):
-    ordine = await conn.fetchval("SELECT id FROM ordini WHERE id = $1", id)
+    ordine = await conn.fetchrow("SELECT id, id_ddt_accompagnatoria FROM ordini WHERE id = $1", id)
     if not ordine:
         raise HTTPException(404, "Ordine non trovato")
     if body.id_prodotto is not None:
@@ -296,35 +465,39 @@ async def add_riga_ordine(id: int, body: OrdineRigaCreate, conn: asyncpg.Connect
         sconto_coperto_kg=body.sconto_coperto_kg,
         prezzo_extra=body.prezzo_extra,
     )
-    try:
-        row = await conn.fetchrow(
-            """
-            INSERT INTO ordini_righe (
-                id_ordine, numero_riga, id_prodotto, descrizione_libera,
-                quantita_ordinata, unita_misura, quantita_kg,
-                prezzo_unitario, valuta,
-                sconto_percentuale, sconto_2_percentuale, sconto_3_percentuale, sconto_4_percentuale,
-                importo_riga, tolleranza_chiusura_kg,
-                qualita_acciaio, lunghezza_mm,
-                id_listino_zincatura, prezzo_zincatura, prezzo_cbam_kg, sconto_coperto_kg, prezzo_extra,
-                data_consegna_prevista, note
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
-            RETURNING *
-            """,
-            id, body.numero_riga, body.id_prodotto, body.descrizione_libera,
-            body.quantita_ordinata, body.unita_misura, body.quantita_kg,
-            body.prezzo_unitario, body.valuta,
-            body.sconto_percentuale, body.sconto_2_percentuale,
-            body.sconto_3_percentuale, body.sconto_4_percentuale,
-            importo, body.tolleranza_chiusura_kg,
-            body.qualita_acciaio, body.lunghezza_mm,
-            body.id_listino_zincatura, body.prezzo_zincatura, body.prezzo_cbam_kg, body.sconto_coperto_kg, body.prezzo_extra,
-            body.data_consegna_prevista, body.note,
-        )
-    except asyncpg.UniqueViolationError:
-        raise HTTPException(409, f"Riga {body.numero_riga} già presente su questo ordine")
-    except asyncpg.ForeignKeyViolationError as e:
-        raise HTTPException(422, detail=str(e))
+    async with conn.transaction():
+        try:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO ordini_righe (
+                    id_ordine, numero_riga, id_prodotto, descrizione_libera,
+                    quantita_ordinata, unita_misura, quantita_kg,
+                    prezzo_unitario, valuta,
+                    sconto_percentuale, sconto_2_percentuale, sconto_3_percentuale, sconto_4_percentuale,
+                    importo_riga, tolleranza_chiusura_kg,
+                    qualita_acciaio, lunghezza_mm,
+                    id_listino_zincatura, prezzo_zincatura, prezzo_cbam_kg, sconto_coperto_kg, prezzo_extra,
+                    data_consegna_prevista, note
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+                RETURNING *
+                """,
+                id, body.numero_riga, body.id_prodotto, body.descrizione_libera,
+                body.quantita_ordinata, body.unita_misura, body.quantita_kg,
+                body.prezzo_unitario, body.valuta,
+                body.sconto_percentuale, body.sconto_2_percentuale,
+                body.sconto_3_percentuale, body.sconto_4_percentuale,
+                importo, body.tolleranza_chiusura_kg,
+                body.qualita_acciaio, body.lunghezza_mm,
+                body.id_listino_zincatura, body.prezzo_zincatura, body.prezzo_cbam_kg, body.sconto_coperto_kg, body.prezzo_extra,
+                body.data_consegna_prevista, body.note,
+            )
+        except asyncpg.UniqueViolationError:
+            raise HTTPException(409, f"Riga {body.numero_riga} già presente su questo ordine")
+        except asyncpg.ForeignKeyViolationError as e:
+            raise HTTPException(422, detail=str(e))
+        if ordine["id_ddt_accompagnatoria"]:
+            await _sync_riga_ddt_accompagnatoria(conn, ordine["id_ddt_accompagnatoria"], row)
+            return await _get_riga(conn, row["id"])
     return dict(row)
 
 
@@ -370,17 +543,33 @@ async def update_riga_ordine(
         prezzo_extra=extra,
     )
     sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(updates))
-    updated = await conn.fetchrow(
-        f"UPDATE ordini_righe SET {sets} WHERE id = $1 RETURNING *",
-        riga_id, *updates.values(),
-    )
+    async with conn.transaction():
+        updated = await conn.fetchrow(
+            f"UPDATE ordini_righe SET {sets} WHERE id = $1 RETURNING *",
+            riga_id, *updates.values(),
+        )
+        # Solo se cambia ciò che finisce sul DDT: un cambio stato manuale non
+        # deve essere ricalcolato dal trigger.
+        id_ddt = await conn.fetchval("SELECT id_ddt_accompagnatoria FROM ordini WHERE id = $1", id)
+        if id_ddt and updates.keys() & {
+            "id_prodotto", "descrizione_libera", "quantita_ordinata", "unita_misura",
+            "quantita_kg", "tolleranza_chiusura_kg",
+        }:
+            await _sync_riga_ddt_accompagnatoria(conn, id_ddt, updated)
+            return await _get_riga(conn, riga_id)
     return dict(updated)
 
 
 @router.delete("/{id}/righe/{riga_id}", status_code=204)
 async def delete_riga_ordine(id: int, riga_id: int, conn: asyncpg.Connection = Depends(get_conn)):
-    result = await conn.execute(
-        "DELETE FROM ordini_righe WHERE id = $1 AND id_ordine = $2", riga_id, id
-    )
+    async with conn.transaction():
+        await conn.execute(
+            """DELETE FROM ddt_righe dr USING ordini o
+               WHERE o.id = $2 AND dr.id_ddt = o.id_ddt_accompagnatoria AND dr.id_riga_ordine = $1""",
+            riga_id, id,
+        )
+        result = await conn.execute(
+            "DELETE FROM ordini_righe WHERE id = $1 AND id_ordine = $2", riga_id, id
+        )
     if result == "DELETE 0":
         raise HTTPException(404)

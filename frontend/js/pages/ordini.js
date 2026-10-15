@@ -82,6 +82,40 @@ function toggleFieldByCheckbox(body, chkName, fieldName) {
   apply();
 }
 
+// Fattura accompagnatoria: col flag il backend crea un DDT con numero/data
+// della fattura e una riga DDT per ogni riga ordine (stessa quantità), che
+// chiude le righe. Numero e data compaiono (obbligatori) solo col flag.
+const FATTURA_ACC_FIELDS = [
+  { name: 'fattura_accompagnatoria',        label: 'Fattura accompagnatoria (crea DDT)', type: 'checkbox', col: 4, value: false },
+  { name: 'numero_fattura_accompagnatoria', label: 'N° Fattura acc. <span class="text-danger">*</span>', type: 'text', col: 4 },
+  { name: 'data_fattura_accompagnatoria',   label: 'Data Fattura acc. <span class="text-danger">*</span>', type: 'date', col: 4 },
+];
+
+// Mostra numero/data col flag; attivandolo la data parte dalla data ordine.
+function setupFatturaAcc(body, dataOrdine = '') {
+  toggleFieldByCheckbox(body, 'fattura_accompagnatoria', 'numero_fattura_accompagnatoria');
+  toggleFieldByCheckbox(body, 'fattura_accompagnatoria', 'data_fattura_accompagnatoria');
+  const chk = body.querySelector('[name="fattura_accompagnatoria"]');
+  const dataInput = body.querySelector('[name="data_fattura_accompagnatoria"]');
+  chk.addEventListener('change', () => {
+    if (chk.checked && !dataInput.value) {
+      dataInput.value = body.querySelector('[name="data_ordine"]')?.value || dataOrdine || '';
+    }
+  });
+}
+
+// Da chiamare in onSave: l'errore lanciato resta come toast a modal aperto.
+// Togliere il flag elimina il DDT generato → chiede conferma.
+function checkFatturaAcc(data, ord = null) {
+  if (data.fattura_accompagnatoria && (!data.numero_fattura_accompagnatoria || !data.data_fattura_accompagnatoria)) {
+    throw new Error('Numero e data della fattura accompagnatoria obbligatori');
+  }
+  if (ord?.fattura_accompagnatoria && !data.fattura_accompagnatoria &&
+      !confirm(`Togliendo il flag verrà eliminato il DDT ${ord.codice_ddt_accompagnatoria} e le righe dell'ordine torneranno aperte. Continuare?`)) {
+    throw new Error('Modifica annullata');
+  }
+}
+
 export async function renderOrdini(container, id) {
   if (id) return renderDetail(container, id);
 
@@ -121,6 +155,7 @@ export async function renderOrdini(container, id) {
     { name: 'prezzo_cbam_kg',         label: 'Tariffa CBAM (€/kg)', type: 'decimal', col: 4, step: '0.000001' },
     { name: 'coperto',                label: 'Coperto (sconto trasversale)', type: 'checkbox', col: 3, value: false },
     { name: 'sconto_coperto_kg',      label: 'Sconto Coperto (€/kg)', type: 'decimal', col: 4, step: '0.000001', placeholder: 'es. -0.03' },
+    ...FATTURA_ACC_FIELDS,
     { name: 'luogo_consegna',         label: 'Luogo Consegna',    type: 'text',   col: 12 },
     { name: 'note',                   label: 'Note',              type: 'textarea', col: 12 },
   ];
@@ -157,8 +192,10 @@ export async function renderOrdini(container, id) {
         toggleFieldByCheckbox(body, 'zincatura', 'id_zincheria');
         toggleFieldByCheckbox(body, 'cbam', 'prezzo_cbam_kg');
         toggleFieldByCheckbox(body, 'coperto', 'sconto_coperto_kg');
+        setupFatturaAcc(body);
       },
       onSave: async data => {
+        checkFatturaAcc(data);
         const ord = await api.ordini.create(data);
         toast('Ordine creato: ' + ord.codice_ordine);
         window.location.hash = `#/ordini/${ord.id}`;
@@ -198,7 +235,11 @@ export async function renderOrdini(container, id) {
   function openEdit(id, row) {
     showFormModal({
       title: `Modifica: ${row.codice_ordine}`, fields: headerFields.slice(1), values: row,
-      onSave: async data => { await api.ordini.update(id, data); toast('Ordine aggiornato'); location.reload(); },
+      afterShow: body => setupFatturaAcc(body, row.data_ordine),
+      onSave: async data => {
+        checkFatturaAcc(data, row);
+        await api.ordini.update(id, data); toast('Ordine aggiornato'); location.reload();
+      },
     });
   }
 
@@ -430,6 +471,7 @@ async function renderDetail(container, id) {
       { name: 'prezzo_cbam_kg',         label: 'Tariffa CBAM (€/kg)', type: 'decimal', col: 4, step: '0.000001' },
       { name: 'coperto',                label: 'Coperto (sconto trasversale)', type: 'checkbox', col: 3, value: ord.coperto },
       { name: 'sconto_coperto_kg',      label: 'Sconto Coperto (€/kg)', type: 'decimal', col: 4, step: '0.000001', placeholder: 'es. -0.03' },
+      ...FATTURA_ACC_FIELDS,
       { name: 'luogo_consegna',         label: 'Luogo Consegna', type: 'text',   col: 12 },
       { name: 'note',                   label: 'Note',           type: 'textarea', col: 12 },
     ];
@@ -439,8 +481,12 @@ async function renderDetail(container, id) {
         toggleFieldByCheckbox(body, 'zincatura', 'id_zincheria');
         toggleFieldByCheckbox(body, 'cbam', 'prezzo_cbam_kg');
         toggleFieldByCheckbox(body, 'coperto', 'sconto_coperto_kg');
+        setupFatturaAcc(body, ord.data_ordine);
       },
-      onSave: async data => { await api.ordini.update(id, data); toast('Ordine aggiornato'); renderDetail(container, id); },
+      onSave: async data => {
+        checkFatturaAcc(data, ord);
+        await api.ordini.update(id, data); toast('Ordine aggiornato'); renderDetail(container, id);
+      },
     });
   };
 
@@ -490,10 +536,25 @@ function headerCard(ord) {
       ${ord.zincatura ? dl('Zincatura', `<span class="badge bg-primary">${ord.nome_zincheria || 'sì'}</span>`, 3) : ''}
       ${ord.cbam ? dl('CBAM', `<span class="badge bg-warning text-dark">${fmt(ord.prezzo_cbam_kg, 'number')} €/kg</span>`, 3) : ''}
       ${ord.coperto ? dl('Coperto', `<span class="badge bg-success">${fmt(ord.sconto_coperto_kg, 'number')} €/kg</span>`, 3) : ''}
+      ${ord.fattura_accompagnatoria ? dl('Fattura accompagnatoria',
+        `<a href="#/ddt/${ord.id_ddt_accompagnatoria}" class="badge bg-info text-dark text-decoration-none">N° ${ord.numero_fattura_accompagnatoria} del ${fmt(ord.data_fattura_accompagnatoria, 'date')} → ${ord.codice_ddt_accompagnatoria}</a>`, 3) : ''}
       ${dl('Luogo Consegna', ord.luogo_consegna, 3)}
       ${ord.note ? dl('Note', ord.note, 12) : ''}
+      ${ord.ddt_collegati?.length ? dl(`DDT collegati (${ord.ddt_collegati.length})`, ddtCollegatiHtml(ord.ddt_collegati), 12) : ''}
     </div>
   </div>`;
+}
+
+// Un DDT per riga: codice (link al dettaglio), n° fornitore, data, stato, kg
+// consegnati su questo ordine.
+function ddtCollegatiHtml(ddts) {
+  return `<div class="d-flex flex-column gap-1 small">${ddts.map(d => `
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <a href="#/ddt/${d.id}" class="fw-semibold text-decoration-none"><i class="bi bi-truck me-1"></i>${d.codice_ddt}</a>
+      <span class="text-muted">N° ${d.numero_ddt_fornitore} del ${fmt(d.data_ddt, 'date')}</span>
+      ${fmt(d.stato, 'stato')}
+      ${d.kg_consegnati != null ? `<span>${fmt(d.kg_consegnati, 'number')} kg</span>` : ''}
+    </div>`).join('')}</div>`;
 }
 
 

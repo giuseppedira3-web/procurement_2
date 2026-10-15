@@ -535,6 +535,20 @@ class OrdineCreate(BaseModel):
     sconto_coperto_kg: Decimal | None = None
     ditta: Ditta
     note: str | None = None
+    # Fattura accompagnatoria: il backend crea un DDT con questo numero/data
+    # e una riga DDT per ogni riga ordine (stessa quantità).
+    fattura_accompagnatoria: bool = False
+    numero_fattura_accompagnatoria: str | None = None
+    data_fattura_accompagnatoria: date | None = None
+
+    @model_validator(mode="after")
+    def check_fattura_accompagnatoria(self):
+        if self.fattura_accompagnatoria and (
+            not (self.numero_fattura_accompagnatoria or "").strip()
+            or self.data_fattura_accompagnatoria is None
+        ):
+            raise ValueError("Numero e data della fattura accompagnatoria obbligatori")
+        return self
 
 
 class OrdineUpdate(BaseModel):
@@ -556,11 +570,16 @@ class OrdineUpdate(BaseModel):
     sconto_coperto_kg: Decimal | None = None
     ditta: Ditta | None = None
     note: str | None = None
+    fattura_accompagnatoria: bool | None = None
+    numero_fattura_accompagnatoria: str | None = None
+    data_fattura_accompagnatoria: date | None = None
 
 
 class OrdineResponse(OrdineCreate):
     id: int
     codice_ordine: str
+    id_ddt_accompagnatoria: int | None = None
+    codice_ddt_accompagnatoria: str | None = None
     numero_progressivo: int
     anno: int
     comune_origine: str | None = None
@@ -657,8 +676,18 @@ class OrdineRigaResponse(OrdineRigaCreate):
         return v
 
 
+class OrdineDdtCollegato(BaseModel):
+    id: int
+    codice_ddt: str
+    numero_ddt_fornitore: str
+    data_ddt: date
+    stato: str
+    kg_consegnati: Decimal | None = None
+
+
 class OrdineConRighe(OrdineResponse):
     righe: list[OrdineRigaResponse] = []
+    ddt_collegati: list[OrdineDdtCollegato] = []
 
 
 # ---------------------------------------------------------------------------
