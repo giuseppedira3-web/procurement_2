@@ -403,7 +403,9 @@ async function renderDetail(container, id) {
       fmt: v => v ? Number(v).toLocaleString('it-IT') : '<span class="text-muted">—</span>' },
     { key: 'quantita_ordinata',   label: 'Q.tà Ord.',  class: 'text-end', fmt: v => fmt(v, 'number') },
     { key: 'unita_misura',        label: 'U.M.',       fmt: v => `<code>${v}</code>` },
-    { key: 'prezzo_unitario',     label: 'Listino',    class: 'text-end', fmt: v => fmt(v, 'number') },
+    { key: 'quantita_kg',         label: 'Peso kg',    class: 'text-end',
+      fmt: v => v != null ? fmt(v, 'number') : '<span class="text-muted">—</span>' },
+    { key: 'prezzo_unitario',     label: 'Listino',   class: 'text-end', fmt: v => fmt(v, 'number') },
     { key: '_s1', label: 'Sc.1',  class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
     { key: '_s2', label: 'Sc.2',  class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
     { key: '_s3', label: 'Sc.3',  class: 'text-end', filterable: false, fmt: v => fmtSconto(v) },
@@ -431,7 +433,15 @@ async function renderDetail(container, id) {
 
   const righeWrap = document.createElement('div');
   righeWrap.className = 'table-card';
-  righeWrap.innerHTML = `<div class="table-toolbar fw-semibold small"><i class="bi bi-list-ul me-2"></i>Righe Ordine</div><div id="righe-tbl"></div>`;
+  // Totali sulle righe non annullate
+  const righeAttive = ord.righe.filter(r => r.stato_riga !== 'annullata');
+  const totImporto = righeAttive.reduce((s, r) => s + Number(r.importo_riga || 0), 0);
+  const totKg      = righeAttive.reduce((s, r) => s + Number(r.quantita_kg || 0), 0);
+  righeWrap.innerHTML = `<div class="table-toolbar fw-semibold small d-flex justify-content-between">
+      <span><i class="bi bi-list-ul me-2"></i>Righe Ordine</span>
+      <span>Totale importo: <strong>${fmt(totImporto, 'currency')}</strong>
+        <span class="mx-2 text-muted">|</span>Peso totale: <strong>${fmt(totKg, 'number')} kg</strong></span>
+    </div><div id="righe-tbl"></div>`;
   container.appendChild(righeWrap);
 
   const cols = DETAIL_COLS
@@ -725,7 +735,12 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
         if (!pesoPerUm && um === 'kg') pesoPerUm = 1;
         if (!pesoPerUm && um === 't')  pesoPerUm = 1000;
 
-        if (pesoPerUm) inputQtyKg.value = (qty * pesoPerUm).toFixed(3);
+        if (pesoPerUm) { inputQtyKg.value = (qty * pesoPerUm).toFixed(3); return; }
+
+        // Pezzi (es. tubolari): peso teorico = kg/m × lunghezza del pezzo
+        const kgPerM = convByProd[currentProd.id]?.['m'];
+        const lungMm = parseFloat(inputLunghezza?.value) || Number(currentProd.lunghezza_mm) || 0;
+        if (um === 'pz' && kgPerM && lungMm) inputQtyKg.value = (qty * kgPerM * lungMm / 1000).toFixed(3);
       }
 
       // Mostra/nasconde il campo lunghezza in base alla categoria del prodotto.
@@ -825,6 +840,7 @@ function openRigaModal(rigaId, riga, ordineId, ord, prodotti, conversioni, catBy
       inputCodice.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyProdotto(e.target.value, false); } });
       inputQty.addEventListener('input', recalcKg);
       inputUm.addEventListener('change', recalcKg);
+      inputLunghezza?.addEventListener('input', recalcKg);
 
       // On edit: show description without overwriting existing field values
       if (codiceIniziale) applyProdotto(codiceIniziale, true);

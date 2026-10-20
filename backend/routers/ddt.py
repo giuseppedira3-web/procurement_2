@@ -47,9 +47,16 @@ async def list_ddt(
     params += [limit, offset]
     n = len(params)
     rows = await conn.fetch(
-        f"""SELECT d.*, v.ragione_sociale AS nome_vettore, io.tipi_ordine
+        f"""SELECT d.*, COALESCE(pr.peso_righe, d.peso_netto_kg) AS peso_netto_kg,
+                   v.ragione_sociale AS nome_vettore, io.tipi_ordine
             FROM ddt d
             LEFT JOIN vettori v ON v.id = d.id_vettore
+            LEFT JOIN LATERAL (
+                -- somma pesi righe (NULL se nessuna riga ha un peso)
+                SELECT SUM(COALESCE(dr.quantita_kg,
+                           CASE WHEN dr.unita_misura = 'kg' THEN dr.quantita_consegnata END)) AS peso_righe
+                FROM ddt_righe dr WHERE dr.id_ddt = d.id
+            ) pr ON true
             LEFT JOIN LATERAL (
                 SELECT array_agg(DISTINCT o.incoterm) AS tipi_ordine
                 FROM ddt_righe dr
