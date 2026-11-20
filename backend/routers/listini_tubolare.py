@@ -102,7 +102,7 @@ async def set_prezzo_listino_tubolare(id: int, body: ListinoTubolarePrezzoUpsert
         row = await conn.fetchrow(
             """
             INSERT INTO listino_tubolare_prezzi (id_listino, id_prodotto, qualita, prezzo, extra)
-            VALUES ($1, $2, $3, $4, COALESCE($5, 0))
+            VALUES ($1, $2, $3, $4, COALESCE($5::numeric, 0))
             ON CONFLICT (id_listino, id_prodotto, qualita)
             DO UPDATE SET prezzo = $4, extra = COALESCE($5, listino_tubolare_prezzi.extra), updated_at = now()
             RETURNING id_prodotto, qualita, prezzo, extra
@@ -175,7 +175,7 @@ async def import_prezzi_listino_tubolare(
             await conn.execute(
                 """
                 INSERT INTO listino_tubolare_prezzi (id_listino, id_prodotto, qualita, prezzo, extra)
-                VALUES ($1, $2, $3, $4, COALESCE($5, 0))
+                VALUES ($1, $2, $3, $4, COALESCE($5::numeric, 0))
                 ON CONFLICT (id_listino, id_prodotto, qualita)
                 DO UPDATE SET prezzo = $4, extra = COALESCE($5, listino_tubolare_prezzi.extra), updated_at = now()
                 """,

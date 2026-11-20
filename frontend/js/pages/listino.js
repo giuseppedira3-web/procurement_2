@@ -2,7 +2,10 @@ import { api, getListinoTubolareId, setListinoTubolareId } from '../api.js';
 import { fmt, toast, downloadCsv, qualitaBadge } from '../utils.js';
 import { renderTable, showFormModal, showImportModal, deleteWithConfirm } from '../components.js';
 
-const EXPORT_BTN = '<button class="btn btn-outline-success btn-sm me-1" data-action="export" title="Scarica i dati mostrati in CSV"><i class="bi bi-file-earmark-arrow-down me-1"></i>Scarica</button>';
+// Base ed extra del listino tubolare sono al millesimo di euro (es. 0,325 €).
+const fmtEur3 = v => new Intl.NumberFormat('it-IT', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(v) + ' €';
+
+const EXPORT_BTN ='<button class="btn btn-outline-success btn-sm me-1" data-action="export" title="Scarica i dati mostrati in CSV"><i class="bi bi-file-earmark-arrow-down me-1"></i>Scarica</button>';
 
 export async function renderListino(container) {
   const [servizi, fornitori, prodotti, categorie, categorieServizio, conversioni, vettori, listiniTubolare, listinoLamieraProduttori] = await Promise.all([
@@ -140,10 +143,10 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
     { key: 'descrizione',     label: 'Descrizione' },
     { key: '_peso',           label: `Peso teorico (kg/${cat.unita_misura_base})`, fmt: v => v != null ? Number(v).toFixed(3) : '<span class="text-muted">n.d.</span>' },
     { key: '_pesoCorretto',   label: `Peso corretto (kg/${cat.unita_misura_base})`, fmt: v => v != null ? Number(v).toFixed(3) : '<span class="text-muted">n.d.</span>' },
-    { key: '_listino',        label: `Base €/${cat.unita_misura_base}`, fmt: v => fmt(v, 'currency') },
+    { key: '_listino',        label: `Base €/${cat.unita_misura_base}`, fmt: v => fmtEur3(v) },
     { key: '_listinoTon',     label: 'Base €/ton',  fmt: v => v != null ? fmt(v, 'currency') : '<span class="text-muted">—</span>' },
-    { key: '_extra',          label: `Extra €/${cat.unita_misura_base}`, fmt: v => v ? fmt(v, 'currency') : '<span class="text-muted">—</span>' },
-    { key: '_scontato',       label: `Scontato €/${cat.unita_misura_base}`, fmt: v => fmt(v, 'currency') },
+    { key: '_extra',          label: `Extra €/${cat.unita_misura_base}`, fmt: v => v ? fmtEur3(v) : '<span class="text-muted">—</span>' },
+    { key: '_scontato',       label: `Scontato €/${cat.unita_misura_base}`, fmt: v => fmtEur3(v) },
     { key: '_scontatoTon',    label: 'Scontato €/ton', fmt: v => v != null ? fmt(v, 'currency') : '<span class="text-muted">—</span>' },
   ];
 
@@ -327,8 +330,8 @@ async function renderTubolare(container, { cat, prodotti, conversioni, listini }
     return [
       { name: 'codice_prodotto', label: 'Codice Prodotto', type: 'text', required: true, col: 6 },
       { name: 'descrizione',     label: 'Descrizione',     type: 'text', required: isDefault, col: 6 },
-      { name: qualitaAttiva.key, label: `Base ${qualitaAttiva.label} (€/${cat.unita_misura_base})`, type: 'decimal', required: true, col: 3, step: '0.0001' },
-      { name: 'extra',           label: `Extra (€/${cat.unita_misura_base})`, type: 'decimal', col: 3, step: '0.0001' },
+      { name: qualitaAttiva.key, label: `Base ${qualitaAttiva.label} (€/${cat.unita_misura_base})`, type: 'decimal', required: true, col: 3, step: '0.001' },
+      { name: 'extra',           label: `Extra (€/${cat.unita_misura_base})`, type: 'decimal', col: 3, step: '0.001' },
       { name: 'id_listino',      label: 'Listino',         type: 'select', required: true, col: 6,
         options: listini.map(l => ({ value: l.id, label: l.nome })), value: listinoAttivo?.id },
     ];
