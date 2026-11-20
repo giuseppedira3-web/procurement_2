@@ -5,6 +5,7 @@ from schemas import (
     ListinoLamieraProduttoreUpdate, ListinoLamieraProduttoreResponse,
     ListinoLamieraExtraSpessoreUpdate, ListinoLamieraExtraSpessoreResponse,
     ListinoLamieraExtraQualitaUpdate, ListinoLamieraExtraQualitaResponse,
+    ListinoLamieraExtraZincaturaUpdate, ListinoLamieraExtraZincaturaResponse,
 )
 
 router = APIRouter(prefix="/listino-lamiera-produttori", tags=["Listino Lamiera Produttori"])
@@ -79,6 +80,33 @@ async def update_extra_qualita(
     row = await conn.fetchrow(
         f"UPDATE listino_lamiera_extra_qualita SET {sets} WHERE id = $1 RETURNING *",
         id, *updates.values(),
+    )
+    if not row:
+        raise HTTPException(404)
+    return dict(row)
+
+
+@router.get("/{id}/extra-zincatura/", response_model=list[ListinoLamieraExtraZincaturaResponse])
+async def list_extra_zincatura(id: int, conn: asyncpg.Connection = Depends(get_conn)):
+    rows = await conn.fetch(
+        """SELECT z.* FROM listino_lamiera_extra_zincatura z
+           JOIN listino_lamiera_extra_spessore s ON s.id = z.id_spessore
+           WHERE s.id_produttore = $1
+           ORDER BY s.ordine, z.ordine""",
+        id,
+    )
+    return [dict(r) for r in rows]
+
+
+@router.patch("/extra-zincatura/{id}", response_model=ListinoLamieraExtraZincaturaResponse)
+async def update_extra_zincatura(
+    id: int, body: ListinoLamieraExtraZincaturaUpdate, conn: asyncpg.Connection = Depends(get_conn)
+):
+    if body.extra_zincatura is None:
+        raise HTTPException(400, "Nessun campo da aggiornare")
+    row = await conn.fetchrow(
+        "UPDATE listino_lamiera_extra_zincatura SET extra_zincatura = $2 WHERE id = $1 RETURNING *",
+        id, body.extra_zincatura,
     )
     if not row:
         raise HTTPException(404)

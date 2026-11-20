@@ -169,6 +169,19 @@ class ListinoLamieraExtraQualitaResponse(ListinoLamieraExtraQualitaUpdate):
     updated_at: datetime
 
 
+class ListinoLamieraExtraZincaturaUpdate(BaseModel):
+    extra_zincatura: Decimal | None = None
+
+
+class ListinoLamieraExtraZincaturaResponse(ListinoLamieraExtraZincaturaUpdate):
+    id: int
+    id_spessore: int
+    rivestimento: str
+    ordine: int
+    created_at: datetime
+    updated_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # QUALITA' ACCIAIO
 # ---------------------------------------------------------------------------

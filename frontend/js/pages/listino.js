@@ -538,6 +538,9 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
   const TIPOLOGIA_LABEL = { Nera: 'Nero', Zincata: 'Zincato' };
   const extraSpessoreCache = {}; // id_produttore -> righe
   const extraQualitaCache = {};  // id_produttore -> righe
+  const extraZincaturaCache = {}; // id_produttore -> righe (solo Zincato)
+  // Selezioni del riquadro "Calcolo prezzo" (solo visualizzazione, non salvate)
+  const calc = { idSpessore: null, idQualita: null, zinco: null, decapato: false };
 
   async function loadExtraSpessore(idProduttore) {
     if (!extraSpessoreCache[idProduttore]) {
@@ -551,6 +554,13 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
       extraQualitaCache[idProduttore] = await api.listinoLamieraProduttori.extraQualita(idProduttore);
     }
     return extraQualitaCache[idProduttore];
+  }
+
+  async function loadExtraZincatura(idProduttore) {
+    if (!extraZincaturaCache[idProduttore]) {
+      extraZincaturaCache[idProduttore] = await api.listinoLamieraProduttori.extraZincatura(idProduttore);
+    }
+    return extraZincaturaCache[idProduttore];
   }
 
   const wrap = document.createElement('div');
@@ -583,6 +593,7 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
         <label class="btn btn-outline-secondary" for="lam-tip-Zincata">Extra Zincato</label>
       </div>
     </div>
+    <div data-calcolo></div>
     <div class="row g-0">
       <div class="col-md-6" data-spessore-extra></div>
       <div class="col-md-6" data-qualita-extra></div>
@@ -621,6 +632,11 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
     }
     // Extra Decapato ha senso solo per la Nera: il Decapato deriva da Base Nero + questo extra.
     const showDecapato = tipologiaAttiva === 'Nera';
+    // Zincato: matrice fascia di spessore × rivestimento zinco (una colonna per rivestimento)
+    const zinchi = tipologiaAttiva === 'Zincata' ? (extraZincaturaCache[produttoreAttivo.id] || []) : [];
+    const rivestimenti = [...new Map([...zinchi].sort((a, b) => a.ordine - b.ordine).map(z => [z.rivestimento, z])).keys()];
+    const cella = (idSpessore, riv) => zinchi.find(z => z.id_spessore === idSpessore && z.rivestimento === riv);
+    const inp = 'type="number" step="0.01" class="form-control form-control-sm text-center mx-auto" style="max-width:110px"';
     host.innerHTML = `
       <div class="table-toolbar fw-semibold small border-end"><i class="bi bi-rulers me-2"></i>Lamiera ${TIPOLOGIA_LABEL[tipologiaAttiva]} — extra per spessore</div>
       <div class="table-responsive border-end">
@@ -629,6 +645,7 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
             <th>Spessore (mm)</th>
             <th class="text-center">Extra Spessore</th>
             ${showDecapato ? '<th class="text-center">Extra Decapato</th>' : ''}
+            ${rivestimenti.map(r => `<th class="text-center">Zinco ${r}</th>`).join('')}
           </tr></thead>
           <tbody>
             ${filtrate.map(r => `<tr>
@@ -637,6 +654,11 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
                 data-spessore-id="${r.id}" data-campo="extra_spessore" value="${r.extra_spessore != null ? Number(r.extra_spessore) : ''}"></td>
               ${showDecapato ? `<td class="text-center"><input type="number" step="0.01" class="form-control form-control-sm text-center mx-auto" style="max-width:110px"
                 data-spessore-id="${r.id}" data-campo="extra_decapato" value="${r.extra_decapato != null ? Number(r.extra_decapato) : ''}"></td>` : ''}
+              ${rivestimenti.map(riv => {
+                const c = cella(r.id, riv);
+                return c ? `<td class="text-center"><input ${inp} data-zincatura-id="${c.id}" title="${r.spessore_label} — ${riv}"
+                  value="${c.extra_zincatura != null ? Number(c.extra_zincatura) : ''}"></td>` : '<td></td>';
+              }).join('')}
             </tr>`).join('')}
           </tbody>
         </table>
@@ -650,6 +672,20 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
           const updated = await api.listinoLamieraProduttori.updateExtraSpessore(id, { [campo]: val ?? 0 });
           const riga = righe.find(r => r.id === id);
           if (riga) riga[campo] = updated[campo];
+          renderCalcolo();
+          toast('Extra aggiornato');
+        } catch (err) { toast(err.message, 'danger'); }
+      });
+    });
+    host.querySelectorAll('[data-zincatura-id]').forEach(input => {
+      input.addEventListener('change', async e => {
+        const id = Number(input.dataset.zincaturaId);
+        const val = e.target.value === '' ? null : Number(e.target.value);
+        try {
+          const updated = await api.listinoLamieraProduttori.updateExtraZincatura(id, { extra_zincatura: val ?? 0 });
+          const c = zinchi.find(z => z.id === id);
+          if (c) c.extra_zincatura = updated.extra_zincatura;
+          renderCalcolo();
           toast('Extra aggiornato');
         } catch (err) { toast(err.message, 'danger'); }
       });
@@ -668,17 +704,12 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
       <div class="table-responsive">
         <table class="table table-sm mb-0 align-middle">
           <thead><tr>
-            <th style="width:40px"></th>
             <th>Qualità</th>
             <th class="text-center">Extra Qualità</th>
           </tr></thead>
           <tbody>
-            ${filtrate.map(r => `<tr class="${r.selezionata ? 'table-primary' : ''}">
-              <td class="text-center">
-                <input type="radio" class="form-check-input" name="lam-qualita-sel" data-select-qualita-id="${r.id}"
-                  ${r.selezionata ? 'checked' : ''} title="Qualità in uso per tutti i codici ${TIPOLOGIA_LABEL[tipologiaAttiva]}">
-              </td>
-              <td>${qualitaBadge(r.qualita)}${r.selezionata ? ' <i class="bi bi-check-circle-fill text-primary ms-1" title="In uso"></i>' : ''}</td>
+            ${filtrate.map(r => `<tr>
+              <td>${qualitaBadge(r.qualita)}</td>
               <td class="text-center"><input type="number" step="0.01" class="form-control form-control-sm text-center mx-auto" style="max-width:110px"
                 data-qualita-id="${r.id}" value="${r.extra_qualita != null ? Number(r.extra_qualita) : ''}"></td>
             </tr>`).join('')}
@@ -693,26 +724,88 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
           const updated = await api.listinoLamieraProduttori.updateExtraQualita(id, { extra_qualita: val ?? 0 });
           const riga = righe.find(r => r.id === id);
           if (riga) riga.extra_qualita = updated.extra_qualita;
+          renderCalcolo();
           toast('Extra aggiornato');
-        } catch (err) { toast(err.message, 'danger'); }
-      });
-    });
-    host.querySelectorAll('[data-select-qualita-id]').forEach(radio => {
-      radio.addEventListener('change', async () => {
-        const id = Number(radio.dataset.selectQualitaId);
-        try {
-          await api.listinoLamieraProduttori.selezionaExtraQualita(id);
-          righe.forEach(r => { r.selezionata = (r.id === id); });
-          toast('Qualità in uso aggiornata');
-          renderQualita(righe);
         } catch (err) { toast(err.message, 'danger'); }
       });
     });
   }
 
+  // Riquadro di calcolo: Base + Extra spessore + Extra qualità (+ Extra
+  // decapato, solo Nero; + Extra spessore zinco, solo Zincato).
+  function renderCalcolo() {
+    const host = wrap.querySelector('[data-calcolo]');
+    const spessori = (extraSpessoreCache[produttoreAttivo.id] || [])
+      .filter(r => r.tipologia === tipologiaAttiva).sort((a, b) => a.ordine - b.ordine);
+    const qualita = (extraQualitaCache[produttoreAttivo.id] || [])
+      .filter(r => r.tipologia === tipologiaAttiva).sort((a, b) => a.ordine - b.ordine);
+    const zinchi = tipologiaAttiva === 'Zincata' ? (extraZincaturaCache[produttoreAttivo.id] || []) : [];
+    const rivestimenti = [...new Map([...zinchi].sort((a, b) => a.ordine - b.ordine).map(z => [z.rivestimento, z])).keys()];
+    if (!spessori.length && !qualita.length) { host.innerHTML = ''; return; }
+
+    // Selezioni non più valide (cambio produttore/tipologia) -> default
+    if (!spessori.some(r => r.id === calc.idSpessore)) calc.idSpessore = spessori[0]?.id ?? null;
+    if (!qualita.some(r => r.id === calc.idQualita)) calc.idQualita = qualita[0]?.id ?? null;
+    if (!rivestimenti.includes(calc.zinco)) calc.zinco = rivestimenti[0] ?? null;
+    const showDecapato = tipologiaAttiva === 'Nera';
+    if (!showDecapato) calc.decapato = false;
+
+    const sp = spessori.find(r => r.id === calc.idSpessore);
+    const q  = qualita.find(r => r.id === calc.idQualita);
+    const z  = zinchi.find(r => r.id_spessore === calc.idSpessore && r.rivestimento === calc.zinco);
+    const base = Number(tipologiaAttiva === 'Nera' ? produttoreAttivo.base_nera : produttoreAttivo.base_zincata) || 0;
+    const voci = [
+      { label: `Base ${TIPOLOGIA_LABEL[tipologiaAttiva]}`, val: base },
+      { label: `Spessore ${sp?.spessore_label ?? '—'}`,     val: Number(sp?.extra_spessore) || 0 },
+      { label: q ? q.qualita : 'Qualità —',                 val: Number(q?.extra_qualita) || 0 },
+    ];
+    if (calc.decapato) voci.push({ label: 'Decapato', val: Number(sp?.extra_decapato) || 0 });
+    if (rivestimenti.length) voci.push({ label: `Zinco ${calc.zinco ?? '—'}`, val: Number(z?.extra_zincatura) || 0 });
+    const totale = voci.reduce((t, v) => t + v.val, 0);
+    const n = v => v.toLocaleString('it-IT', { maximumFractionDigits: 2 });
+
+    host.innerHTML = `
+      <div class="table-toolbar flex-wrap gap-2 bg-light">
+        <span class="fw-semibold small me-1"><i class="bi bi-calculator me-1"></i>Calcolo prezzo</span>
+        <label class="small text-muted mb-0">Spessore</label>
+        <select class="form-select form-select-sm" style="max-width:140px" data-calc="spessore">
+          ${spessori.map(r => `<option value="${r.id}" ${r.id === calc.idSpessore ? 'selected' : ''}>${r.spessore_label}</option>`).join('')}
+        </select>
+        <label class="small text-muted mb-0 ms-2">Qualità</label>
+        <select class="form-select form-select-sm" style="max-width:160px" data-calc="qualita">
+          ${qualita.map(r => `<option value="${r.id}" ${r.id === calc.idQualita ? 'selected' : ''}>${r.qualita}</option>`).join('')}
+        </select>
+        ${rivestimenti.length ? `
+        <label class="small text-muted mb-0 ms-2">Spessore zinco</label>
+        <select class="form-select form-select-sm" style="max-width:110px" data-calc="zinco">
+          ${rivestimenti.map(r => `<option value="${r}" ${r === calc.zinco ? 'selected' : ''}>${r}</option>`).join('')}
+        </select>` : ''}
+        ${showDecapato ? `
+        <div class="form-check form-switch mb-0 ms-2">
+          <input class="form-check-input" type="checkbox" id="calc-decapato" data-calc="decapato" ${calc.decapato ? 'checked' : ''}>
+          <label class="form-check-label small" for="calc-decapato">Decapato</label>
+        </div>` : ''}
+        <span class="ms-auto small text-nowrap">
+          ${voci.map(v => `<span class="text-muted" title="${v.label}">${n(v.val)}</span>`).join(' <span class="text-muted">+</span> ')}
+          <span class="text-muted">=</span>
+          <strong class="fs-6 ms-1">${n(totale)} €/ton</strong>
+        </span>
+      </div>`;
+
+    host.querySelector('[data-calc="spessore"]')?.addEventListener('change', e => { calc.idSpessore = Number(e.target.value); renderCalcolo(); });
+    host.querySelector('[data-calc="qualita"]')?.addEventListener('change', e => { calc.idQualita = Number(e.target.value); renderCalcolo(); });
+    host.querySelector('[data-calc="zinco"]')?.addEventListener('change', e => { calc.zinco = e.target.value; renderCalcolo(); });
+    host.querySelector('[data-calc="decapato"]')?.addEventListener('change', e => { calc.decapato = e.target.checked; renderCalcolo(); });
+  }
+
   function renderPannelli() {
+    // Zincato: la tabella spessori contiene la matrice zinco, quindi è più larga
+    const zinc = tipologiaAttiva === 'Zincata';
+    wrap.querySelector('[data-spessore-extra]').className = zinc ? 'col-md-8' : 'col-md-6';
+    wrap.querySelector('[data-qualita-extra]').className = zinc ? 'col-md-4' : 'col-md-6';
     renderSpessore(extraSpessoreCache[produttoreAttivo.id] || []);
     renderQualita(extraQualitaCache[produttoreAttivo.id] || []);
+    renderCalcolo();
   }
 
   function refresh() {
@@ -732,8 +825,9 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
     refresh();
     wrap.querySelector('[data-spessore-extra]').innerHTML = SPINNER;
     wrap.querySelector('[data-qualita-extra]').innerHTML = SPINNER;
+    wrap.querySelector('[data-calcolo]').innerHTML = '';
     try {
-      await Promise.all([loadExtraSpessore(p.id), loadExtraQualita(p.id)]);
+      await Promise.all([loadExtraSpessore(p.id), loadExtraQualita(p.id), loadExtraZincatura(p.id)]);
       if (produttoreAttivo === p) renderPannelli();
     } catch (err) {
       if (produttoreAttivo === p) {
@@ -763,6 +857,7 @@ async function renderLamiera(container, { cat, prodotti, produttori }) {
       try {
         const updated = await api.listinoLamieraProduttori.update(produttoreAttivo.id, { [campo]: val ?? 0 });
         produttoreAttivo[campo] = updated[campo];
+        renderCalcolo();
         toast(`Base aggiornata — ${produttoreAttivo.produttore}`);
       } catch (err) { toast(err.message, 'danger'); }
     });

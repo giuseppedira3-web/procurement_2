@@ -107,6 +107,7 @@ export const api = {
   listinoLamieraProduttori: { list: () => req('GET', '/listino-lamiera-produttori/'), update: (id,b) => req('PATCH', `/listino-lamiera-produttori/${id}`, b),
                  extraSpessore: id => req('GET', `/listino-lamiera-produttori/${id}/extra-spessore/`), updateExtraSpessore: (id,b) => req('PATCH', `/listino-lamiera-produttori/extra-spessore/${id}`, b),
                  extraQualita: id => req('GET', `/listino-lamiera-produttori/${id}/extra-qualita/`), updateExtraQualita: (id,b) => req('PATCH', `/listino-lamiera-produttori/extra-qualita/${id}`, b),
+                 extraZincatura: id => req('GET', `/listino-lamiera-produttori/${id}/extra-zincatura/`), updateExtraZincatura: (id,b) => req('PATCH', `/listino-lamiera-produttori/extra-zincatura/${id}`, b),
                  selezionaExtraQualita: id => req('POST', `/listino-lamiera-produttori/extra-qualita/${id}/seleziona`) },
   categorieServizio: { list: (p='') => req('GET', `/categorie-servizio/${p}`), get: id => req('GET', `/categorie-servizio/${id}`), create: b => req('POST', '/categorie-servizio/', b), update: (id,b) => req('PATCH', `/categorie-servizio/${id}`, b), del: id => req('DELETE', `/categorie-servizio/${id}`) },
   listinoServizi:    { list: (p='') => req('GET', `/listino-servizi/${p}`), get: id => req('GET', `/listino-servizi/${id}`), create: b => req('POST', '/listino-servizi/', b), update: (id,b) => req('PATCH', `/listino-servizi/${id}`, b), del: id => req('DELETE', `/listino-servizi/${id}`) },
