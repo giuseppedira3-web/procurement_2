@@ -631,9 +631,11 @@ function validateForm(fields, data) {
  * templateUrl: URL del template CSV scaricabile
  * importFn: async (file) => BulkImportResult { totale_righe, inseriti, errori: [{riga, errore}] }
  * onSuccess: chiamata alla chiusura del modal se almeno una riga è stata inserita
+ * verificaFn: opzionale, async (file) => BulkImportResult con codici_esistenti. Se ci sono codici
+ *   esistenti chiede conferma prima di sovrascriverli, poi chiama importFn(file, { conferma: true })
  * helpHtml: HTML opzionale con dettagli sulle colonne accettate
  */
-export function showImportModal({ title, templateUrl, importFn, onSuccess, helpHtml = '' }) {
+export function showImportModal({ title, templateUrl, importFn, verificaFn, onSuccess, helpHtml = '' }) {
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = `
     <div class="d-flex align-items-start justify-content-between mb-3 gap-2">
@@ -658,23 +660,54 @@ export function showImportModal({ title, templateUrl, importFn, onSuccess, helpH
   if (_modalSaveHandler) saveBtn.removeEventListener('click', _modalSaveHandler);
 
   let insertedAny = false;
+  let inAttesaConferma = false;
+  const labelImporta = '<i class="bi bi-upload me-1"></i>Importa';
+  const resetConferma = () => { inAttesaConferma = false; saveBtn.innerHTML = labelImporta; saveBtn.classList.remove('btn-warning'); };
+  document.getElementById('import-file').addEventListener('change', () => {
+    resetConferma();
+    document.getElementById('import-result').innerHTML = '';
+  });
 
   _modalSaveHandler = async () => {
     const file = document.getElementById('import-file').files[0];
     if (!file) { toast('Seleziona un file', 'warning'); return; }
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Importo...';
+    let aspettaConferma = false;
     try {
-      const result = await importFn(file);
-      if (result.inseriti > 0) insertedAny = true;
-      const variant = result.errori.length ? (result.inseriti ? 'warning' : 'danger') : 'success';
-      let html = `<div class="alert alert-${variant} mb-2">Inserite <strong>${result.inseriti}</strong> righe su ${result.totale_righe}.</div>`;
+      if (verificaFn && !inAttesaConferma) {
+        const v = await verificaFn(file);
+        if (v.codici_esistenti?.length) {
+          const n = v.codici_esistenti.length;
+          const elenco = v.codici_esistenti.slice(0, 15).join(', ') + (n > 15 ? `, … (+${n - 15})` : '');
+          document.getElementById('import-result').innerHTML = `
+            <div class="alert alert-warning mb-2">
+              <i class="bi bi-exclamation-triangle me-1"></i>
+              <strong>${n}</strong> codici esistono già e verranno <strong>modificati</strong>
+              (solo i campi presenti nel file; le celle vuote lasciano il dato invariato).
+              ${v.nuovi ? `Ne verranno inseriti <strong>${v.nuovi}</strong> nuovi.` : ''}
+              <div class="small mt-1 text-break">${elenco}</div>
+              ${v.errori.length ? `<div class="small mt-1 text-danger">${v.errori.length} righe con errori saranno saltate.</div>` : ''}
+            </div>`;
+          inAttesaConferma = true;
+          aspettaConferma = true;
+          saveBtn.classList.add('btn-warning');
+          saveBtn.innerHTML = '<i class="bi bi-pencil-square me-1"></i>Conferma e sovrascrivi';
+          return;
+        }
+      }
+      const result = await importFn(file, { conferma: inAttesaConferma });
+      if (result.inseriti > 0 || result.aggiornati > 0) insertedAny = true;
+      const variant = result.errori.length ? ((result.inseriti || result.aggiornati) ? 'warning' : 'danger') : 'success';
+      let html = `<div class="alert alert-${variant} mb-2">Inserite <strong>${result.inseriti}</strong> righe su ${result.totale_righe}` +
+        `${result.aggiornati ? `, modificate <strong>${result.aggiornati}</strong> esistenti` : ''}.</div>`;
       if (result.errori.length) {
         html += `<div class="small" style="max-height:200px; overflow:auto;">` +
           result.errori.map(e => `<div class="text-danger">Riga ${e.riga}: ${e.errore}</div>`).join('') +
           `</div>`;
       }
       document.getElementById('import-result').innerHTML = html;
+      resetConferma();
       if (!result.errori.length) {
         toast('Importazione completata', 'success');
         setTimeout(() => modal.hide(), 1000);
@@ -683,7 +716,7 @@ export function showImportModal({ title, templateUrl, importFn, onSuccess, helpH
       toast(e.message, 'danger');
     } finally {
       saveBtn.disabled = false;
-      saveBtn.innerHTML = '<i class="bi bi-upload me-1"></i>Importa';
+      if (!aspettaConferma) saveBtn.innerHTML = labelImporta;
     }
   };
   saveBtn.addEventListener('click', _modalSaveHandler);

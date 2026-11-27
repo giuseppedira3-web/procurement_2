@@ -123,12 +123,24 @@ async def export_prodotti(conn: asyncpg.Connection = Depends(get_conn)):
 
 
 @router.post("/import", response_model=BulkImportResult)
-async def import_prodotti(file: UploadFile = File(...), conn: asyncpg.Connection = Depends(get_conn)):
+async def import_prodotti(
+    aggiorna_esistenti: bool = Query(False, description="Se il codice esiste già, aggiorna i soli campi forniti nel file"),
+    solo_verifica: bool = Query(False, description="Non scrive nulla: riporta quanti codici sarebbero nuovi e quali esistono già"),
+    file: UploadFile = File(...),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Import massivo prodotti. Codice nuovo -> inserimento (descrizione e
+    unita_misura_acquisto obbligatorie). Codice già esistente: errore, oppure
+    con aggiorna_esistenti=true sovrascrive solo le colonne presenti nel file
+    con un valore; celle vuote e colonne assenti lasciano il dato invariato
+    (una cella vuota non può quindi azzerare un valore)."""
     rows = await read_rows(file)
     cat_rows = await conn.fetch("SELECT id, codice FROM categorie_prodotto")
     cat_map = {r["codice"].strip().upper(): r["id"] for r in cat_rows}
 
-    inseriti = 0
+    inseriti = aggiornati = 0
+    nuovi = 0
+    esistenti: list[str] = []
     errori: list[BulkImportError] = []
 
     for i, row in enumerate(rows, start=2):
@@ -158,7 +170,16 @@ async def import_prodotti(file: UploadFile = File(...), conn: asyncpg.Connection
                 data["id_categoria"] = id_categoria
 
             data = {k: v for k, v in data.items() if v is not None}
-            body = ProdottoCreate(**data)
+            codice = data.get("codice_prodotto")
+            if not codice:
+                raise ValueError("codice_prodotto mancante")
+            existing = await conn.fetchrow("SELECT id FROM prodotti WHERE codice_prodotto = $1", codice)
+            if existing:
+                if not aggiorna_esistenti:
+                    raise ValueError(f"codice_prodotto '{codice}' già esistente")
+                updates = ProdottoUpdate(**{k: v for k, v in data.items() if k != "codice_prodotto"})                     .model_dump(exclude_unset=True, exclude_none=True)
+            else:
+                body = ProdottoCreate(**data)
         except ValidationError as e:
             errori.append(BulkImportError(riga=i, errore="; ".join(f"{err['loc'][-1]}: {err['msg']}" for err in e.errors())))
             continue
@@ -166,6 +187,24 @@ async def import_prodotti(file: UploadFile = File(...), conn: asyncpg.Connection
             errori.append(BulkImportError(riga=i, errore=str(e)))
             continue
 
+        if existing:
+            esistenti.append(codice)
+            if solo_verifica:
+                continue
+            if not updates:
+                aggiornati += 1  # nessun campo da modificare: riga valida, dati invariati
+                continue
+            try:
+                sets = ", ".join(f"{k} = ${n+2}" for n, k in enumerate(updates))
+                await conn.execute(f"UPDATE prodotti SET {sets} WHERE id = $1", existing["id"], *updates.values())
+                aggiornati += 1
+            except asyncpg.PostgresError as e:
+                errori.append(BulkImportError(riga=i, errore=str(e)))
+            continue
+
+        nuovi += 1
+        if solo_verifica:
+            continue
         try:
             await _insert_prodotto(conn, body)
             inseriti += 1
@@ -174,7 +213,10 @@ async def import_prodotti(file: UploadFile = File(...), conn: asyncpg.Connection
         except asyncpg.PostgresError as e:
             errori.append(BulkImportError(riga=i, errore=str(e)))
 
-    return BulkImportResult(totale_righe=len(rows), inseriti=inseriti, errori=errori)
+    return BulkImportResult(
+        totale_righe=len(rows), inseriti=inseriti, errori=errori,
+        aggiornati=aggiornati, nuovi=nuovi, codici_esistenti=esistenti, solo_verifica=solo_verifica,
+    )
 
 
 @router.get("/import-prezzo-riferimento/template", include_in_schema=False)

@@ -23,6 +23,22 @@ function withDitta(path) {
   return path + (path.includes('?') ? '&' : '?') + 'ditta=' + getDitta();
 }
 
+// Query string dai filtri: valori vuoti ignorati, array ripetuti (?k=a&k=b).
+function queryString(p) {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(p)) {
+    if (Array.isArray(v)) v.forEach(x => q.append(k, x));
+    else if (v !== '' && v != null) q.append(k, v);
+  }
+  return q;
+}
+
+async function perFornitori(ids, path) {
+  if (!ids.length) return req('GET', withDitta(path));
+  const liste = await Promise.all(ids.map(id => req('GET', withDitta(`${path}?id_fornitore=${id}`))));
+  return liste.flat();
+}
+
 // Listino Tubolare attivo: condiviso tra la pagina Listino Prezzi e la
 // compilazione ordini, così il prezzo proposto in un ordine è sempre quello
 // del listino attualmente selezionato in intestazione.
@@ -93,7 +109,7 @@ export const api = {
   // esistenti su prodotti/righe ordine — solo lista, creazione, rinomina.
   qualita:     { list: (p='') => req('GET', `/qualita-acciaio/${p}`), create: b => req('POST', '/qualita-acciaio/', b), update: (id,b) => req('PATCH', `/qualita-acciaio/${id}`, b) },
   prodotti:    { list: (p='') => req('GET', `/prodotti/${p}`), get: id => req('GET', `/prodotti/${id}`), create: b => req('POST', '/prodotti/', b), update: (id,b) => req('PATCH', `/prodotti/${id}`, b), del: id => req('DELETE', `/prodotti/${id}`),
-                 importFile: file => upload('/prodotti/import', file), templateUrl: '/prodotti/import/template', exportUrl: '/prodotti/export',
+                 importFile: (file, { aggiorna = false, soloVerifica = false } = {}) => upload(`/prodotti/import?aggiorna_esistenti=${aggiorna}&solo_verifica=${soloVerifica}`, file), templateUrl: '/prodotti/import/template', exportUrl: '/prodotti/export',
                  importPrezzoRiferimento: (idCategoria, file, campoPrezzoImport = 'prezzo_riferimento') => upload(`/prodotti/import-prezzo-riferimento?id_categoria=${idCategoria}&campo_prezzo=${campoPrezzoImport}`, file),
                  prezzoRiferimentoTemplateUrl: '/prodotti/import-prezzo-riferimento/template' },
   listiniTubolare: { list: (p='') => req('GET', `/listini-tubolare/${p}`), create: b => req('POST', '/listini-tubolare/', b),
@@ -130,6 +146,14 @@ export const api = {
       req('GET', `/dashboard/quantita-prezzo-mensile?categoria=${categoria}&raggruppa_per=${raggruppaPer}&mesi=${mesi}${ditta ? '&ditta=' + ditta : ''}`),
     tubolareMensile: ({ mesi = 12, ditta } = {}) =>
       req('GET', `/dashboard/tubolare-mensile?mesi=${mesi}${ditta ? '&ditta=' + ditta : ''}`),
+    lamieraMensile: ({ mesi = 12, ditta } = {}) =>
+      req('GET', `/dashboard/lamiera-mensile?mesi=${mesi}${ditta ? '&ditta=' + ditta : ''}`),
+    // Report stampabili: `p` = oggetto di filtri (valori vuoti ignorati).
+    reportOrdini:      (p = {}) => req('GET', withDitta(`/dashboard/report-ordini?${queryString(p)}`)),
+    reportResiduoRighe:(p = {}) => req('GET', withDitta(`/dashboard/report-residuo-righe?${queryString(p)}`)),
+    // Una chiamata per fornitore selezionato (nessuno = tutti), risultati uniti.
+    esposizioneFornitore: (ids = []) => perFornitori(ids, '/dashboard/esposizione-fornitori'),
+    ddtNonFatturatiFornitore: (ids = []) => perFornitori(ids, '/dashboard/ddt-non-fatturati'),
     cbamOrdini:        () => req('GET', withDitta('/dashboard/cbam-ordini')),
     materialeInArrivo: ({ categoria = 'MERCANTILE', ditta } = {}) =>
       req('GET', `/dashboard/materiale-in-arrivo?categoria=${categoria}${ditta ? '&ditta=' + ditta : ''}`),

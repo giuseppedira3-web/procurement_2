@@ -25,9 +25,14 @@ function ultimiMesi(n) {
 // core ha una struttura di prezzo diversa, quindi la media ponderata degli
 // ultimi 12 mesi non può limitarsi a mediare prezzo_unitario così com'è.
 const NOTE_LOGICA = {
-  LAMIERA: `Il prezzo di acquisto è negoziato direttamente per prodotto, senza
-    scomposizione base/extra. La media ponderata (per kg) del prezzo_unitario
-    è quindi già rappresentativa.`,
+  LAMIERA: `Ogni acquisto è ricondotto al prezzo base: prezzo netto per kg
+    (incluso trasporto) meno gli extra di listino della riga — fascia di spessore,
+    qualità, larghezza (1000/2000 mm) e, per la Decapata, l'extra decapato. Spessore
+    e larghezza vengono dal prodotto, la qualità dalla riga d'ordine. La lamiera di
+    seconda scelta (qualità vuota, N.a. o Libero) non è conteggiata. Se manca anche
+    solo uno degli elementi di prezzo la riga è esclusa dalla media (ma resta nelle
+    quantità): i contatori sotto mostrano righe e kg considerati/esclusi e il motivo.
+    La Zincata è sempre esclusa dalla media perché il rivestimento zinco non è registrato.`,
   MERCANTILE: `Il prezzo di acquisto è "base di mercato + extra di lavorazione"
     (extra specifico per prodotto/qualità, prodotti.prezzo_riferimento), a cui si
     aggiungono zincatura e trasporto quando presenti. La media ponderata (per kg)
@@ -81,7 +86,7 @@ export async function renderPrezzi(container) {
         <div class="tab-pane fade ${i === 0 ? 'show active' : ''}" id="prezzi-${c.key}"></div>`).join('')}
     </div>`;
 
-  const RENDER_PANE = { MERCANTILE: renderMercantilePane, TRAVI: renderTraviPane, TUBOLARE: renderTubolarePane };
+  const RENDER_PANE = { LAMIERA: renderLamieraPane, MERCANTILE: renderMercantilePane, TRAVI: renderTraviPane, TUBOLARE: renderTubolarePane };
   CATEGORIE_CORE.forEach(c => {
     const pane = container.querySelector(`#prezzi-${c.key}`);
     (RENDER_PANE[c.key] || renderCategoriaPane)(pane, c);
@@ -350,6 +355,107 @@ async function caricaTravi(pane, serieAggregata, ditta) {
   const { totKg, mediaPrezzo } = totaliPesati(datiQtaAgg, datiPrezzoAgg, mesiCompleti, 'TOT');
   pane.querySelector('#travi-tot-qta').innerHTML = fmt(totKg, 'peso_t');
   pane.querySelector('#travi-tot-prezzo').innerHTML = mediaPrezzo != null ? fmt(mediaPrezzo, 'eur_kg') : '—';
+}
+
+// --- Lamiera: quantità e prezzo base medio ponderato per mese (13 mesi), ---
+// --- per tipologia, con contatori righe considerate/escluse.             ---
+
+const LAMIERA_SERIES = [
+  { key: 'Nera',     label: 'Nera',     color: '#4a5560' },
+  { key: 'Decapata', label: 'Decapata', color: '#eda100' },
+  { key: 'Zincata',  label: 'Zincata',  color: '#9aa5b1' },
+];
+
+function renderLamieraPane(pane, categoria) {
+  pane.innerHTML = `
+    <div class="alert alert-secondary small mb-3">
+      <i class="bi bi-info-circle me-2"></i>${NOTE_LOGICA[categoria.key]}
+    </div>
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <label class="small fw-semibold mb-0" for="lamiera-ditta">Ditta</label>
+      <select class="form-select form-select-sm w-auto" id="lamiera-ditta">
+        <option value="">1 + 2</option>
+        <option value="ditta1">Ditta 1</option>
+        <option value="ditta2">Ditta 2</option>
+      </select>
+    </div>
+    <div class="table-card p-3 mb-3">
+      <div class="fw-semibold small mb-2">
+        <i class="bi ${categoria.icon} me-2" style="color:${categoria.color}"></i>Quantità Acquistate — Lamiera (t/mese, escl. seconda scelta)
+      </div>
+      <div id="lamiera-chart-qta"></div>
+      <div class="small text-muted mt-2">Il mese corrente è parziale.</div>
+    </div>
+    <div class="table-card p-3 mb-3">
+      <div class="fw-semibold small mb-2">
+        <i class="bi ${categoria.icon} me-2" style="color:${categoria.color}"></i>Prezzo Base Medio Ponderato — Lamiera (€/kg, netto − extra)
+      </div>
+      <div id="lamiera-chart-prezzo"></div>
+      <div class="small text-muted mt-2">Il mese corrente è parziale.</div>
+    </div>
+    <div class="table-card p-3 mb-3">
+      <div class="fw-semibold small mb-2"><i class="bi bi-clipboard-data me-2"></i>Qualità del dato — ultimi 12 mesi completi</div>
+      <div id="lamiera-contatori"></div>
+    </div>`;
+
+  const select = pane.querySelector('#lamiera-ditta');
+  const carica = () => caricaLamiera(pane, select.value || undefined);
+  select.addEventListener('change', carica);
+  carica();
+}
+
+async function caricaLamiera(pane, ditta) {
+  const mesi = ultimiMesi(13);
+  const rows = await api.dashboard.lamieraMensile({ mesi: 13, ditta });
+
+  const datiQta = {}, datiPrezzo = {};
+  for (const r of rows) {
+    (datiQta[r.mese] ??= {})[r.tipologia] = Number(r.peso_kg);
+    if (r.prezzo_medio_kg != null) (datiPrezzo[r.mese] ??= {})[r.tipologia] = Number(r.prezzo_medio_kg);
+  }
+  renderGroupedBarChart(pane.querySelector('#lamiera-chart-qta'), {
+    series: LAMIERA_SERIES, xValues: mesi, data: datiQta,
+    formatValue: v => fmt(v, 'peso_t'), showValues: true,
+  });
+  renderGroupedBarChart(pane.querySelector('#lamiera-chart-prezzo'), {
+    series: LAMIERA_SERIES, xValues: mesi, data: datiPrezzo,
+    formatValue: v => fmt(v, 'eur_kg'), showValues: true, type: 'line',
+  });
+
+  // Contatori sui 12 mesi completi (il corrente è parziale), per tipologia.
+  const meseCorrente = mesi[mesi.length - 1].key;
+  const tot = {};
+  for (const r of rows.filter(r => r.mese !== meseCorrente)) {
+    const t = tot[r.tipologia] ??= { rc: 0, re: 0, kgc: 0, kge: 0, rs: 0, kgs: 0, num: 0, motivi: {} };
+    t.rc += r.righe_considerate; t.re += r.righe_escluse;
+    t.kgc += Number(r.kg_considerati); t.kge += Number(r.kg_esclusi);
+    t.rs += r.righe_seconda_scelta; t.kgs += Number(r.kg_seconda_scelta);
+    if (r.prezzo_medio_kg != null) t.num += Number(r.kg_considerati) * Number(r.prezzo_medio_kg);
+    for (const [m, n] of Object.entries(r.motivi_esclusione)) t.motivi[m] = (t.motivi[m] || 0) + n;
+  }
+  const tipi = Object.keys(tot).sort();
+  const host = pane.querySelector('#lamiera-contatori');
+  if (!tipi.length) { host.innerHTML = '<div class="text-muted small">Nessun dato disponibile</div>'; return; }
+  host.innerHTML = `
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+      <thead><tr>
+        <th>Tipologia</th><th class="text-end">Prezzo base medio</th>
+        <th class="text-end">Righe considerate</th><th class="text-end">Righe escluse</th>
+        <th class="text-end">% kg considerati</th><th class="text-end">Seconda scelta (righe / t)</th><th>Motivi esclusione</th>
+      </tr></thead><tbody>
+      ${tipi.map(k => {
+        const t = tot[k], kgPrima = t.kgc + t.kge;
+        return `<tr>
+          <td>${k}</td>
+          <td class="text-end">${t.kgc > 0 ? fmt(t.num / t.kgc, 'eur_kg') : '—'}</td>
+          <td class="text-end">${t.rc}</td>
+          <td class="text-end ${t.re ? 'text-danger' : ''}">${t.re}</td>
+          <td class="text-end">${kgPrima > 0 ? (100 * t.kgc / kgPrima).toFixed(0) + '%' : '—'}</td>
+          <td class="text-end">${t.rs} / ${fmt(t.kgs, 'peso_t')}</td>
+          <td class="small text-muted">${Object.entries(t.motivi).map(([m, n]) => `${m}: ${n}`).join('<br>') || '—'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody></table></div>`;
 }
 
 // --- Tubolare: quantità e prezzo medio ponderato per mese (13 mesi), ---

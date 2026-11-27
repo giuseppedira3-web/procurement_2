@@ -2,7 +2,8 @@ import { renderDashboard }    from './pages/dashboard.js';
 import { renderPrezzi }       from './pages/prezzi.js';
 import { renderCbam }         from './pages/cbam.js';
 import { renderMaterialeArrivo } from './pages/materiale-arrivo.js';
-import { renderFornitori }    from './pages/fornitori.js';
+import { renderStampe }       from './pages/stampe.js';
+import { renderFornitori }   from './pages/fornitori.js';
 import { renderCategorie }    from './pages/categorie.js';
 import { renderQualita }      from './pages/qualita.js';
 import { renderProdotti }     from './pages/prodotti.js';
@@ -22,6 +23,7 @@ const ROUTES = {
   '/prezzi':     { title: 'Prezzi',           render: renderPrezzi },
   '/cbam':       { title: 'CBAM',             render: renderCbam },
   '/materiale-in-arrivo': { title: 'Materiale in Arrivo', render: renderMaterialeArrivo },
+  '/stampe':     { title: 'Stampe',           render: renderStampe },
   '/fornitori':  { title: 'Fornitori',        render: renderFornitori },
   '/categorie':  { title: 'Categorie Prodotto', render: renderCategorie },
   '/qualita':    { title: 'Qualità Acciaio',   render: renderQualita },
@@ -79,6 +81,7 @@ function applicaUtente() {
   document.getElementById('nav-prezzi').classList.toggle('d-none', !u || u.ruolo !== 'admin');
   document.getElementById('nav-cbam').classList.toggle('d-none', !u || u.ruolo !== 'admin');
   document.getElementById('nav-materiale-arrivo').classList.toggle('d-none', !u || u.ruolo !== 'admin');
+  document.getElementById('nav-stampe').classList.toggle('d-none', !u || u.ruolo !== 'admin');
   if (u) {
     document.getElementById('utente-nome').textContent = u.nome_completo || u.username;
     document.getElementById('utente-ruolo').textContent = u.ruolo;
@@ -224,4 +227,23 @@ document.addEventListener('keydown', e => {
     const btn = document.getElementById('modal-save-btn');
     if (btn && !btn.disabled) { e.preventDefault(); btn.click(); }
   }
+});
+
+// Campi data: O → oggi, I → giorno prima, P → giorno dopo (vale per ogni input[type=date]).
+document.addEventListener('keydown', e => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement) || el.type !== 'date' || el.readOnly || el.disabled) return;
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  const passo = { o: 0, i: -1, p: 1 }[e.key.toLowerCase()];
+  if (passo === undefined) return;
+  e.preventDefault();
+  const d = new Date();
+  if (passo !== 0) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(el.value);
+    if (m) d.setFullYear(+m[1], +m[2] - 1, +m[3]); // altrimenti parte da oggi
+    d.setDate(d.getDate() + passo);
+  }
+  el.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
 });

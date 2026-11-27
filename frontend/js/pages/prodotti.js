@@ -193,7 +193,8 @@ export async function renderProdotti(container) {
   document.getElementById('btn-import').onclick = () => showImportModal({
     title: 'Importa Prodotti da CSV/XLSX',
     templateUrl: api.prodotti.templateUrl,
-    importFn: file => api.prodotti.importFile(file),
+    verificaFn: file => api.prodotti.importFile(file, { aggiorna: true, soloVerifica: true }),
+    importFn: (file, { conferma }) => api.prodotti.importFile(file, { aggiorna: conferma }),
     onSuccess: () => location.reload(),
     helpHtml: `<p class="small text-muted">
       Campi obbligatori: <code>codice_prodotto</code>, <code>descrizione</code>, <code>unita_misura_acquisto</code>.<br>
@@ -201,7 +202,10 @@ export async function renderProdotti(container) {
       lunghezza_mm, diametro_mm, norma, qualita_acciaio, peso_unitario_kg, prezzo_riferimento,
       categoria_trave (solo TRAVI, 0-5), tipologia_lamiera (solo LAMIERA: Nera/Decapata/Zincata), attivo, note.<br>
       Per modifiche massive: usa il pulsante <strong>Esporta</strong> per scaricare i prodotti esistenti
-      nello stesso formato del template, modificali e ricaricali da qui.
+      nello stesso formato del template, modificali e ricaricali da qui.<br>
+      Se il <code>codice_prodotto</code> esiste già, dopo conferma vengono sovrascritti solo i campi presenti nel file:
+      colonne assenti e celle vuote lasciano invariato il dato (per un prodotto già esistente bastano
+      <code>codice_prodotto</code> e le colonne da cambiare, ad es. spessore_mm e larghezza_mm).
     </p>`,
   });
 

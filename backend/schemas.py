@@ -933,6 +933,11 @@ class BulkImportResult(BaseModel):
     totale_righe: int
     inseriti: int
     errori: list[BulkImportError]
+    # Solo per gli import che supportano l'aggiornamento di record esistenti
+    aggiornati: int = 0
+    nuovi: int = 0
+    codici_esistenti: list[str] = []
+    solo_verifica: bool = False
 
 
 # ---------------------------------------------------------------------------

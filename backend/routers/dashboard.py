@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
@@ -270,6 +271,167 @@ async def tubolare_mensile(
     return [dict(r) for r in rows]
 
 
+# Qualità che identificano la lamiera di seconda scelta: non entrano né nelle
+# quantità né nel prezzo medio (riportate a parte nei contatori).
+_QUALITA_SECONDA_SCELTA = {"", "n.a.", "na", "n/a", "libero"}
+
+# La qualità sulle righe d'ordine (anagrafica qualita_acciaio) e quella a
+# listino Zincato hanno nomi diversi per le stesse due qualità.
+_ALIAS_QUALITA_LISTINO = {"dx51d": "dx51 - s220gd", "s280gd+z": "s280gd"}
+
+# Larghezze standard: nessun extra. 1000/2000 hanno l'extra su categorie_prodotto.
+_LARGHEZZE_STANDARD = (Decimal("1250"), Decimal("1500"))
+
+
+def _dec(txt: str) -> Decimal:
+    return Decimal(txt.strip().replace(",", "."))
+
+
+def _fascia_contiene(label: str, spessore: Decimal) -> bool:
+    """Le fasce sono testo: range "1,25 - 1,50" (con spazi) oppure valori
+    singoli/accorpati "1.5", "4-5-6" (senza spazi). Confronto esatto sui
+    singoli, inclusivo sui range."""
+    try:
+        if " - " in label:
+            lo, hi = (_dec(x) for x in label.split(" - ", 1))
+            return lo <= spessore <= hi
+        return any(_dec(x) == spessore for x in label.split("-"))
+    except Exception:
+        return False
+
+
+@router.get("/lamiera-mensile")
+async def lamiera_mensile(
+    ditta: str | None = None,
+    produttore: str = Query("Arvedi", description="Produttore di cui usare il listino extra"),
+    mesi: int = Query(12, ge=1, le=36, description="Ampiezza finestra, mese corrente incluso"),
+    admin: dict = Depends(require_admin),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Peso (kg) e prezzo medio ponderato di acquisto per mese per la
+    LAMIERA, ricondotto al prezzo base: prezzo netto per kg (incluso
+    trasporto) meno gli extra di listino della riga — spessore (fascia),
+    qualità, larghezza (1000/2000 mm) e, per la Decapata, l'extra decapato
+    (come nel calcolatore del Listino: Nero + extra spessore + qualità
+    [+ decapato]). Gli extra sono in €/ton, quindi /1000 per il confronto
+    con i €/kg. Raggruppa per tipologia (Nera/Decapata/Zincata).
+
+    Spessore e larghezza vengono dal prodotto, la qualità dalla riga d'ordine.
+    Seconda scelta (qualità vuota/N.a./Libero): esclusa da quantità e media,
+    riportata solo nei contatori. Come per il tubolare, se manca anche solo
+    uno degli elementi di prezzo la riga è esclusa dalla media ma resta nel
+    peso_kg. Ogni gruppo espone contatori (righe/kg considerati ed esclusi,
+    con il motivo) per giudicare la genuinità del dato. La Zincata è sempre
+    esclusa dalla media: il rivestimento zinco (Z100…Z275), che incide
+    sull'extra, non è registrato su prodotto né su riga d'ordine. Solo admin.
+    """
+    prod = await conn.fetchrow("SELECT id FROM listino_lamiera_produttori WHERE produttore = $1", produttore)
+    if not prod:
+        return []
+    fasce = [dict(r) for r in await conn.fetch(
+        "SELECT tipologia, spessore_label, extra_spessore, extra_decapato FROM listino_lamiera_extra_spessore WHERE id_produttore = $1",
+        prod["id"])]
+    qual = {(r["tipologia"], r["qualita"].strip().lower()): r["extra_qualita"] for r in await conn.fetch(
+        "SELECT tipologia, qualita, extra_qualita FROM listino_lamiera_extra_qualita WHERE id_produttore = $1",
+        prod["id"])}
+    cat = await conn.fetchrow(
+        """SELECT extra_l1000_nera, extra_l1000_decapata, extra_l1000_zincata,
+                  extra_l2000_nera, extra_l2000_decapata, extra_l2000_zincata
+           FROM categorie_prodotto WHERE codice = 'LAMIERA'""")
+
+    filters, params = [
+        "cp.codice = 'LAMIERA'",
+        "o.data_ordine >= date_trunc('month', CURRENT_DATE) - ($1 * INTERVAL '1 month')",
+        "r.quantita_kg > 0",
+    ], [mesi - 1]
+    if ditta is not None:
+        params.append(ditta)
+        filters.append(f"o.ditta = ${len(params)}")
+    righe = await conn.fetch(
+        f"""SELECT to_char(date_trunc('month', o.data_ordine), 'YYYY-MM') AS mese,
+                   p.tipologia_lamiera, p.spessore_mm, p.larghezza_mm,
+                   r.qualita_acciaio, r.quantita_kg, r.importo_riga,
+                   COALESCE(t.prezzo_trasporto_kg, 0) AS trasporto_kg
+            FROM ordini_righe r
+            JOIN ordini o ON o.id = r.id_ordine
+            JOIN prodotti p ON p.id = r.id_prodotto
+            JOIN categorie_prodotto cp ON cp.id = p.id_categoria
+            LEFT JOIN v_trasporto_righe_ordine t ON t.id_riga_ordine = r.id
+            WHERE {" AND ".join(filters)}""",
+        *params,
+    )
+
+    def extra_riga(r):
+        """-> (extra €/ton, None) oppure (None, motivo di esclusione)."""
+        tip, sp, lg = r["tipologia_lamiera"], r["spessore_mm"], r["larghezza_mm"]
+        if tip is None:
+            return None, "tipologia non impostata sul prodotto"
+        if tip == "Zincata":
+            return None, "zincato: rivestimento zinco non rilevabile"
+        if sp is None:
+            return None, "spessore mancante sul prodotto"
+        if lg is None:
+            return None, "larghezza mancante sul prodotto"
+        tab = "Nera"  # la Decapata usa le tabelle Nera + extra decapato
+        fascia = next((f for f in fasce if f["tipologia"] == tab and _fascia_contiene(f["spessore_label"], sp)), None)
+        if fascia is None:
+            return None, "spessore fuori dalle fasce di listino"
+        if fascia["extra_spessore"] is None:
+            return None, "extra spessore non valorizzato"
+        q = (r["qualita_acciaio"] or "").strip().lower()
+        q = _ALIAS_QUALITA_LISTINO.get(q, q)
+        if (tab, q) not in qual:
+            return None, "qualità non presente a listino"
+        if qual[(tab, q)] is None:
+            return None, "extra qualità non valorizzato"
+        extra = fascia["extra_spessore"] + qual[(tab, q)]
+        if tip == "Decapata":
+            if fascia["extra_decapato"] is None:
+                return None, "extra decapato non valorizzato"
+            extra += fascia["extra_decapato"]
+        if lg not in _LARGHEZZE_STANDARD:
+            if lg not in (Decimal("1000"), Decimal("2000")):
+                return None, "larghezza non a listino"
+            v = cat[f"extra_l{int(lg)}_{tip.lower()}"] if cat else None
+            if v is None:
+                return None, "extra larghezza non valorizzato"
+            extra += v
+        return extra, None
+
+    gruppi: dict = {}
+    for r in righe:
+        g = gruppi.setdefault((r["mese"], r["tipologia_lamiera"] or "Non classificata"), {
+            "mese": r["mese"], "tipologia": r["tipologia_lamiera"] or "Non classificata",
+            "peso_kg": Decimal(0), "righe_considerate": 0, "righe_escluse": 0,
+            "kg_considerati": Decimal(0), "kg_esclusi": Decimal(0),
+            "righe_seconda_scelta": 0, "kg_seconda_scelta": Decimal(0),
+            "motivi_esclusione": {}, "_num": Decimal(0),
+        })
+        kg = r["quantita_kg"]
+        if (r["qualita_acciaio"] or "").strip().lower() in _QUALITA_SECONDA_SCELTA:
+            g["righe_seconda_scelta"] += 1
+            g["kg_seconda_scelta"] += kg
+            continue
+        g["peso_kg"] += kg
+        extra, motivo = extra_riga(r)
+        if motivo:
+            g["righe_escluse"] += 1
+            g["kg_esclusi"] += kg
+            g["motivi_esclusione"][motivo] = g["motivi_esclusione"].get(motivo, 0) + 1
+            continue
+        g["righe_considerate"] += 1
+        g["kg_considerati"] += kg
+        g["_num"] += r["importo_riga"] + kg * r["trasporto_kg"] - kg * extra / 1000
+
+    out = []
+    for key in sorted(gruppi):
+        g = gruppi[key]
+        num = g.pop("_num")
+        g["prezzo_medio_kg"] = num / g["kg_considerati"] if g["kg_considerati"] else None
+        out.append(g)
+    return out
+
+
 @router.get("/materiale-in-arrivo")
 async def materiale_in_arrivo(
     categoria: str = Query(..., pattern="^(LAMIERA|MERCANTILE|TRAVI|TUBOLARE)$"),
@@ -318,6 +480,119 @@ async def materiale_in_arrivo(
             LEFT JOIN v_trasporto_righe_ordine t ON t.id_riga_ordine = r.id
             {where}
             ORDER BY p.codice_prodotto, o.data_ordine""",
+        *params,
+    )
+    return [dict(r) for r in rows]
+
+
+def _filtri_report(id_fornitore, categoria, data_da, data_a, ditta):
+    """Filtri comuni ai report stampabili: ordini non annullati, righe non
+    annullate, più i filtri opzionali scelti dall'utente."""
+    filters, params = ["o.stato != 'annullato'", "r.stato_riga != 'annullata'"], []
+    for valore, clausola in (
+        (ditta,        "o.ditta = ${}"),
+        (id_fornitore, "o.id_fornitore = ANY(${})"),
+        (categoria,    "cp.codice = ANY(${})"),
+        (data_da,      "o.data_ordine >= ${}"),
+        (data_a,       "o.data_ordine <= ${}"),
+    ):
+        if valore is not None:
+            params.append(valore)
+            filters.append(clausola.format(len(params)))
+    return "WHERE " + " AND ".join(filters), params
+
+
+# Consegnato = quota proporzionale della riga già arrivata (al massimo 100%);
+# residuo = quota ancora attesa, solo per le righe ancora aperte/parziali.
+# Ordinato totale = consegnato + residuo.
+_QUOTA_CONSEGNATA = "LEAST(r.quantita_consegnata / NULLIF(r.quantita_ordinata, 0), 1)"
+_QUOTA_RESIDUA = (
+    "CASE WHEN r.stato_riga IN ('aperta', 'parziale') "
+    "THEN GREATEST(1 - r.quantita_consegnata / NULLIF(r.quantita_ordinata, 0), 0) ELSE 0 END"
+)
+
+_GRUPPI_REPORT = {
+    # raggruppa_per -> (colonne SELECT, colonne GROUP/ORDER BY)
+    "fornitore":           ("f.ragione_sociale AS fornitore", "f.ragione_sociale"),
+    "categoria":           ("cp.codice AS categoria", "cp.codice"),
+    "fornitore_categoria": ("f.ragione_sociale AS fornitore, cp.codice AS categoria",
+                            "f.ragione_sociale, cp.codice"),
+}
+
+
+@router.get("/report-ordini")
+async def report_ordini(
+    raggruppa_per: str = Query("fornitore", pattern="^(fornitore|categoria|fornitore_categoria)$"),
+    id_fornitore: list[int] | None = Query(None),
+    categoria: list[str] | None = Query(None),
+    data_da: date | None = None,
+    data_a: date | None = None,
+    ditta: str | None = None,
+    admin: dict = Depends(require_admin),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Totali (peso kg e importo) di materiale arrivato, ordinato totale
+    (arrivato + da arrivare) e residuo ordini, raggruppati per fornitore e/o
+    categoria, per le stampe PDF. Sono contate solo le righe di prodotti a
+    catalogo. Come per /totali-ordini, il consegnato è stimato in proporzione
+    alla quantità consegnata/ordinata. Solo admin."""
+    select, group = _GRUPPI_REPORT[raggruppa_per]
+    where, params = _filtri_report(id_fornitore, categoria, data_da, data_a, ditta)
+    rows = await conn.fetch(
+        f"""SELECT {select},
+                   COUNT(DISTINCT o.id)                                                  AS num_ordini,
+                   COALESCE(SUM(r.quantita_kg * {_QUOTA_CONSEGNATA}), 0)                 AS peso_arrivato_kg,
+                   COALESCE(SUM(r.quantita_kg * {_QUOTA_RESIDUA}), 0)                    AS peso_residuo_kg,
+                   COALESCE(SUM(r.importo_riga * {_QUOTA_CONSEGNATA}), 0)                AS importo_arrivato,
+                   COALESCE(SUM(r.importo_riga * {_QUOTA_RESIDUA}), 0)                   AS importo_residuo
+            FROM ordini_righe r
+            JOIN ordini o ON o.id = r.id_ordine
+            JOIN fornitori f ON f.id = o.id_fornitore
+            JOIN prodotti p ON p.id = r.id_prodotto
+            JOIN categorie_prodotto cp ON cp.id = p.id_categoria
+            {where}
+            GROUP BY {group}
+            ORDER BY {group}""",
+        *params,
+    )
+    return [dict(r) for r in rows]
+
+
+@router.get("/report-residuo-righe")
+async def report_residuo_righe(
+    id_fornitore: list[int] | None = Query(None),
+    categoria: list[str] | None = Query(None),
+    data_da: date | None = None,
+    data_a: date | None = None,
+    ditta: str | None = None,
+    admin: dict = Depends(require_admin),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Dettaglio righe ordine ancora da ricevere (residuo > 0), per la stampa
+    "residuo ordini". Solo admin."""
+    where, params = _filtri_report(id_fornitore, categoria, data_da, data_a, ditta)
+    rows = await conn.fetch(
+        f"""SELECT f.ragione_sociale                                       AS fornitore,
+                   o.id                                                    AS id_ordine,
+                   o.codice_ordine,
+                   o.data_ordine,
+                   COALESCE(r.data_consegna_prevista, o.data_consegna_prevista) AS data_consegna_prevista,
+                   cp.codice                                               AS categoria,
+                   p.codice_prodotto,
+                   p.descrizione                                           AS descrizione_prodotto,
+                   r.unita_misura,
+                   (r.quantita_ordinata - r.quantita_consegnata)           AS quantita_residua,
+                   r.quantita_kg * {_QUOTA_RESIDUA}                        AS peso_residuo_kg,
+                   r.importo_riga * {_QUOTA_RESIDUA}                       AS importo_residuo
+            FROM ordini_righe r
+            JOIN ordini o ON o.id = r.id_ordine
+            JOIN fornitori f ON f.id = o.id_fornitore
+            JOIN prodotti p ON p.id = r.id_prodotto
+            JOIN categorie_prodotto cp ON cp.id = p.id_categoria
+            {where}
+              AND r.stato_riga IN ('aperta', 'parziale')
+              AND r.quantita_ordinata > r.quantita_consegnata
+            ORDER BY f.ragione_sociale, o.data_ordine, o.codice_ordine, r.numero_riga""",
         *params,
     )
     return [dict(r) for r in rows]
