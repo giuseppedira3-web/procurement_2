@@ -83,7 +83,7 @@ function righeColumns() {
 export async function renderDdt(container, id) {
   if (id) return renderDetail(container, id);
 
-  const [rows, fornitori, vettori] = await Promise.all([api.ddt.list(`?limit=${LIST_LIMIT}`), api.fornitori.list(), api.vettori.list()]);
+  const [rows, fornitori, vettori] = await Promise.all([api.ddt.list(`?limit=${LIST_LIMIT}`), api.fornitori.list("?limit=200"), api.vettori.list()]);
   const fornMap = Object.fromEntries(fornitori.map(f => [f.id, f.ragione_sociale]));
   rows.forEach(r => r._fornitore = fornMap[r.id_fornitore] || '—');
 

@@ -25,7 +25,7 @@ const LIST_LIMIT = 1000;
 export async function renderFatture(container, id) {
   if (id) return renderDetail(container, id);
 
-  const [rows, fornitori] = await Promise.all([api.fatture.list(`?limit=${LIST_LIMIT}`), api.fornitori.list()]);
+  const [rows, fornitori] = await Promise.all([api.fatture.list(`?limit=${LIST_LIMIT}`), api.fornitori.list("?limit=200")]);
   const fornMap = Object.fromEntries(fornitori.map(f => [f.id, f.ragione_sociale]));
   rows.forEach(r => r._fornitore = fornMap[r.id_fornitore] || '—');
 
